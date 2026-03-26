@@ -44,8 +44,7 @@ if isAttach {
         // Set up dashboard (scroll region + status bar)
         dashboard.setup()
 
-        // Resize PTY to match the Claude portion of the terminal
-        surface.resize(cols: UInt16(dashboard.claudeRows > 0 ? 120 : 120), rows: UInt16(dashboard.claudeRows))
+        // Resize PTY to match the Claude portion (left pane: claudeCols wide, full height)
         syncTerminalSize(surface: surface, dashboard: dashboard)
 
         // Mirror PTY output into the scroll region
@@ -146,7 +145,7 @@ func syncTerminalSize(surface: TerminalSurface, dashboard: Dashboard) {
     var ws = winsize()
     if ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 {
         dashboard.updateTermSize()
-        // Claude gets the full width but only the top portion height
-        surface.resize(cols: ws.ws_col, rows: UInt16(dashboard.claudeRows))
+        // Claude gets the left pane width and full height
+        surface.resize(cols: UInt16(dashboard.claudeCols), rows: ws.ws_row)
     }
 }
