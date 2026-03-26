@@ -32,11 +32,11 @@ enum Theme {
     static let border = Color(hex: 0x10B981).opacity(0.2)
     static let borderSubtle = Color(hex: 0x10B981).opacity(0.1)
 
-    // Fonts
-    static let mono = Font.system(.body, design: .monospaced)
-    static let monoSmall = Font.system(.caption, design: .monospaced)
-    static let monoTiny = Font.system(.caption2, design: .monospaced)
-    static let monoTitle = Font.system(.headline, design: .monospaced)
+    // Fonts — sized up for readability
+    static let mono = Font.system(size: 14, design: .monospaced)
+    static let monoSmall = Font.system(size: 12, design: .monospaced)
+    static let monoTiny = Font.system(size: 11, design: .monospaced)
+    static let monoTitle = Font.system(size: 16, weight: .semibold, design: .monospaced)
 }
 
 extension Color {

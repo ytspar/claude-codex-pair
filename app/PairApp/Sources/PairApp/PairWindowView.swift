@@ -3,42 +3,41 @@ import SwiftUI
 struct PairWindowView: View {
     @ObservedObject private var sessionManager = SessionManager.shared
     @ObservedObject private var themeManager = ThemeManager.shared
-    @State private var codexWidth: CGFloat = 420
 
     var body: some View {
-        ThinSplitView(
-            left: leftPane,
-            right: CodexPanelView(),
-            dividerColor: NSColor(themeManager.border),
-            rightWidth: $codexWidth
-        )
+        // Use native HSplitView but style the NSSplitView divider via appearance
+        HSplitView {
+            // Left: Terminal sessions
+            VStack(spacing: 0) {
+                if sessionManager.sessions.count > 1 {
+                    SessionTabBar(
+                        sessions: sessionManager.sessions,
+                        selectedId: sessionManager.activeSessionId,
+                        onSelect: { sessionManager.activeSessionId = $0 },
+                        onClose: { sessionManager.removeSession($0) }
+                    )
+                }
+
+                ZStack {
+                    themeManager.bg
+
+                    if sessionManager.sessions.isEmpty {
+                        EmptyTerminalView()
+                    } else if let active = sessionManager.activeSession {
+                        TerminalContainerView(session: active)
+                            .id(active.id)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(minWidth: 400)
+
+            // Right: Codex panel
+            CodexPanelView()
+                .frame(minWidth: 280, maxWidth: 600)
+        }
         .background(themeManager.bg)
         .background(SessionShortcutButtons(sessionManager: sessionManager))
-    }
-
-    private var leftPane: some View {
-        VStack(spacing: 0) {
-            if sessionManager.sessions.count > 1 {
-                SessionTabBar(
-                    sessions: sessionManager.sessions,
-                    selectedId: sessionManager.activeSessionId,
-                    onSelect: { sessionManager.activeSessionId = $0 },
-                    onClose: { sessionManager.removeSession($0) }
-                )
-            }
-
-            ZStack {
-                themeManager.bg
-
-                if sessionManager.sessions.isEmpty {
-                    EmptyTerminalView()
-                } else if let active = sessionManager.activeSession {
-                    TerminalContainerView(session: active)
-                        .id(active.id)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
     }
 }
 
@@ -64,7 +63,7 @@ struct SessionTabBar: View {
                 }
             }
         }
-        .frame(height: 32)
+        .frame(height: 36)
         .background(themeManager.bg)
         .overlay(
             Rectangle().fill(themeManager.border).frame(height: 1),
@@ -85,24 +84,24 @@ struct SessionTab: View {
     }
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             Circle()
                 .fill(themeManager.accent)
-                .frame(width: 6, height: 6)
+                .frame(width: 7, height: 7)
             Text(projectName)
-                .font(Theme.monoTiny)
+                .font(.system(size: 13, weight: .medium, design: .monospaced))
                 .foregroundColor(isSelected ? themeManager.text : themeManager.textSecondary)
                 .lineLimit(1)
             Button(action: onClose) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.system(size: 9, weight: .bold))
                     .foregroundColor(themeManager.textMuted)
             }
             .buttonStyle(.plain)
             .opacity(isSelected ? 1 : 0)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
         .background(isSelected ? themeManager.bgElevated : Color.clear)
         .overlay(
             Rectangle()
@@ -120,25 +119,26 @@ struct SessionTab: View {
 struct EmptyTerminalView: View {
     @ObservedObject private var themeManager = ThemeManager.shared
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 20) {
             Image(systemName: "terminal")
-                .font(.system(size: 48))
+                .font(.system(size: 56))
                 .foregroundColor(themeManager.textMuted)
             Text("No Claude sessions")
-                .font(Theme.monoTitle)
+                .font(.system(size: 22, weight: .medium, design: .monospaced))
                 .foregroundColor(themeManager.textSecondary)
-            HStack(spacing: 4) {
+            HStack(spacing: 6) {
                 Text("⌘N")
-                    .font(Theme.monoSmall)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
+                    .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                    .foregroundColor(themeManager.textSecondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
                     .background(themeManager.bgCard)
-                    .cornerRadius(3)
+                    .cornerRadius(4)
                 Text("or")
-                    .font(Theme.monoSmall)
+                    .font(.system(size: 14, design: .monospaced))
                     .foregroundColor(themeManager.textMuted)
                 Text("pair launch <dir>")
-                    .font(Theme.monoSmall)
+                    .font(.system(size: 14, design: .monospaced))
                     .foregroundColor(themeManager.textMuted)
             }
         }
