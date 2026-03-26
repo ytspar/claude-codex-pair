@@ -115,6 +115,35 @@ class IPCServer {
             }
             return IPCResponse(ok: true)
 
+        case "read_screen":
+            guard let surfaceId = request.surface else {
+                return IPCResponse(ok: false, error: "Missing surface")
+            }
+            guard let session = SessionManager.shared.findSession(surfaceId),
+                  let termView = session.terminalView else {
+                return IPCResponse(ok: false, error: "Session not found or no terminal")
+            }
+            // Read screen on main thread (SwiftTerm is not thread-safe)
+            var screenText = ""
+            let semaphore = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async {
+                screenText = ScreenReader.readScreen(from: termView, scrollback: request.text == "--scrollback")
+                semaphore.signal()
+            }
+            semaphore.wait()
+            return IPCResponse(ok: true, result: screenText)
+
+        case "send_key":
+            guard let surfaceId = request.surface, let key = request.text else {
+                return IPCResponse(ok: false, error: "Missing surface or key")
+            }
+            guard let session = SessionManager.shared.findSession(surfaceId) else {
+                return IPCResponse(ok: false, error: "Session not found")
+            }
+            let keySequence = resolveKey(key)
+            session.injectInput(keySequence)
+            return IPCResponse(ok: true)
+
         default:
             return IPCResponse(ok: false, error: "Unknown action: \(request.action)")
         }
@@ -123,6 +152,39 @@ class IPCServer {
     private func sendResponse(_ fd: Int32, _ response: IPCResponse) {
         guard let data = try? JSONEncoder().encode(response) else { return }
         data.withUnsafeBytes { ptr in _ = write(fd, ptr.baseAddress, data.count) }
+    }
+}
+
+/// Resolve named keys to terminal escape sequences (matches cmux protocol).
+private func resolveKey(_ name: String) -> String {
+    switch name.lowercased() {
+    case "enter", "return": return "\r"
+    case "tab": return "\t"
+    case "escape", "esc": return "\u{1B}"
+    case "backspace": return "\u{7F}"
+    case "ctrl-c", "sigint": return "\u{03}"
+    case "ctrl-d", "eof": return "\u{04}"
+    case "ctrl-z", "sigtstp": return "\u{1A}"
+    case "ctrl-\\", "sigquit": return "\u{1C}"
+    case "up": return "\u{1B}[A"
+    case "down": return "\u{1B}[B"
+    case "right": return "\u{1B}[C"
+    case "left": return "\u{1B}[D"
+    case "home": return "\u{1B}[H"
+    case "end": return "\u{1B}[F"
+    case "delete": return "\u{1B}[3~"
+    case "pageup": return "\u{1B}[5~"
+    case "pagedown": return "\u{1B}[6~"
+    default:
+        // ctrl-<letter> pattern
+        if name.lowercased().hasPrefix("ctrl-"), name.count == 6 {
+            let letter = name.last!
+            let code = Int(letter.asciiValue ?? 0) - 96  // a=1, b=2, etc.
+            if code > 0 && code < 27 {
+                return String(UnicodeScalar(code)!)
+            }
+        }
+        return name
     }
 }
 

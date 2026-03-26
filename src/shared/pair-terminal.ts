@@ -48,6 +48,46 @@ export async function sendInputViaPairTerminal(
 }
 
 /**
+ * Read the terminal screen content for a session.
+ * Returns plain text of what's currently displayed.
+ */
+export async function readScreen(
+	surfaceId: string,
+	scrollback = false,
+): Promise<string | null> {
+	try {
+		const response = await sendCommand({
+			action: "read_screen",
+			surface: surfaceId,
+			text: scrollback ? "--scrollback" : undefined,
+		});
+		if (response.ok && response.result) return response.result;
+		return null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Send a named key to a session (enter, ctrl-c, tab, escape, etc.)
+ */
+export async function sendKey(
+	surfaceId: string,
+	key: string,
+): Promise<boolean> {
+	try {
+		const response = await sendCommand({
+			action: "send_key",
+			surface: surfaceId,
+			text: key,
+		});
+		return response.ok;
+	} catch {
+		return false;
+	}
+}
+
+/**
  * List all surfaces managed by pair-terminal.
  */
 export async function listSurfaces(): Promise<
