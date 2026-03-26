@@ -209,13 +209,19 @@ struct EmptyTerminalView: View {
                     Text("Open Directory")
                 }
                 .font(.system(size: 14, weight: .medium, design: .monospaced))
-                .foregroundColor(themeManager.bg)
+                .foregroundColor(themeManager.accent)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 10)
-                .background(themeManager.accent)
-                .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(themeManager.accent, lineWidth: 1.5)
+                )
             }
             .buttonStyle(.plain)
+            .onHover { hovering in
+                if hovering { NSCursor.pointingHand.push() }
+                else { NSCursor.pop() }
+            }
 
             HStack(spacing: 6) {
                 Text("⌘N")

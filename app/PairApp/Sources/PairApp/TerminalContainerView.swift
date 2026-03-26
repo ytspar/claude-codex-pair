@@ -41,7 +41,8 @@ struct TerminalContainerView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        guard let termView = context.coordinator.terminalView else { return }
+        guard let termView = context.coordinator.terminalView,
+              termView.window != nil else { return }
         hideScroller(termView)
         applyTheme(to: termView)
     }

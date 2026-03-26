@@ -45,7 +45,9 @@ class ThemeManager: ObservableObject {
     }
 
     func toggle() {
+        PairLog.info("Theme toggle: \(mode.rawValue) → \(mode == .devbar ? "Ghostty" : "Devbar")")
         mode = (mode == .devbar) ? .ghostty : .devbar
+        PairLog.info("Theme toggle complete")
     }
 
     private func reloadColors() {

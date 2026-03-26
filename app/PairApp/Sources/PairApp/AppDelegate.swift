@@ -7,6 +7,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
 
+        // Install crash handlers + logging
+        PairLog.installCrashHandlers()
+        PairLog.info("PairApp launching")
+
         // Set app icon
         if let iconURL = Bundle.module.url(forResource: "AppIcon", withExtension: "icns", subdirectory: "Resources"),
            let icon = NSImage(contentsOf: iconURL) {
