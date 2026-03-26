@@ -25,13 +25,7 @@ struct PairWindowView: View {
                 .frame(minWidth: 300, idealWidth: 450)
         }
         .frame(minWidth: 900, minHeight: 500)
-        .onAppear {
-            // Auto-launch a Claude session in the current directory if none exist
-            if sessionManager.sessions.isEmpty {
-                let cwd = FileManager.default.currentDirectoryPath
-                sessionManager.createSession(cwd: cwd)
-            }
-        }
+        // Sessions are created via IPC or pair launch command
     }
 }
 
