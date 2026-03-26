@@ -131,6 +131,52 @@ program
 		}
 	});
 
+// ── pair launch ─────────────────────────────────────────────────────────
+program
+	.command("launch [directory]")
+	.description("Launch a Claude session in pair-terminal (Codex can inject input)")
+	.option("--id <id>", "Session ID")
+	.action(async (directory?: string, opts?: { id?: string }) => {
+		const cwd = directory ? path.resolve(directory) : process.cwd();
+		const binaryPath = path.resolve(import.meta.dirname, "pair-terminal");
+
+		if (!fs.existsSync(binaryPath)) {
+			console.error(red("pair-terminal binary not found. Run: npm run build"));
+			process.exit(1);
+		}
+
+		const id = opts?.id ?? `pair-${Date.now().toString(36)}`;
+
+		// Open a new Ghostty tab running pair-terminal in attach mode
+		const command = `${binaryPath} --attach ${cwd} --id ${id}`;
+		try {
+			const { execFile: ef } = await import("node:child_process");
+			const { promisify } = await import("node:util");
+			const execFileAsync = promisify(ef);
+
+			// Try Ghostty's new-tab action via AppleScript
+			await execFileAsync("osascript", [
+				"-e", `tell application "Ghostty" to activate`,
+				"-e", `delay 0.3`,
+				"-e", `tell application "System Events" to tell process "ghostty" to keystroke "t" using command down`,
+				"-e", `delay 0.5`,
+				"-e", `tell application "System Events" to keystroke "${command}"`,
+				"-e", `tell application "System Events" to key code 36`,
+			]);
+
+			console.log(green(`✓ Launched Claude session: ${id}`));
+			console.log(dim(`  directory: ${cwd}`));
+			console.log(dim(`  Codex can inject input via IPC`));
+		} catch (err) {
+			// Fallback: run in current terminal
+			console.log(dim("Could not open Ghostty tab. Running in current terminal..."));
+			const child = spawn(binaryPath, ["--attach", cwd, "--id", id], {
+				stdio: "inherit",
+			});
+			child.on("exit", (code) => process.exit(code ?? 0));
+		}
+	});
+
 // ── pair status ─────────────────────────────────────────────────────────
 program
 	.command("status")
