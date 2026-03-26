@@ -144,6 +144,28 @@ class IPCServer {
             session.injectInput(keySequence)
             return IPCResponse(ok: true)
 
+        case "notify":
+            let sessionId = request.surface ?? ""
+            let title = request.text ?? "Notification"
+            DispatchQueue.main.async {
+                NotificationStore.shared.addNotification(sessionId: sessionId, title: title, body: "")
+            }
+            return IPCResponse(ok: true)
+
+        case "report_pwd":
+            // Shell integration: update session's current directory
+            if let text = request.text, let surface = request.surface,
+               let session = SessionManager.shared.findSession(surface) {
+                DispatchQueue.main.async {
+                    session.currentDirectory = text
+                }
+            }
+            return IPCResponse(ok: true)
+
+        case "report_cmd":
+            // Shell integration: log command execution
+            return IPCResponse(ok: true)
+
         default:
             return IPCResponse(ok: false, error: "Unknown action: \(request.action)")
         }

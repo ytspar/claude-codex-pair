@@ -64,6 +64,7 @@ struct PairWindowView: View {
             }
         }
         .background(Theme.bg)
+        .background(SessionShortcutButtons(sessionManager: sessionManager))
     }
 }
 

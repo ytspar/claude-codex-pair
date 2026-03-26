@@ -59,8 +59,10 @@ class PairSession: Identifiable, ObservableObject {
     let command: String
 
     weak var terminalView: LocalProcessTerminalView?
+    var currentDirectory: String
 
     init(id: String, cwd: String, command: String) {
+        self.currentDirectory = cwd
         self.id = id
         self.cwd = cwd
         self.command = command
@@ -69,12 +71,10 @@ class PairSession: Identifiable, ObservableObject {
     func start(in view: LocalProcessTerminalView) {
         self.terminalView = view
 
-        var env = ProcessInfo.processInfo.environment
-        env["TERM"] = "xterm-256color"
-        env["PAIR_SESSION_ID"] = id
-        env["PAIR_SOCKET_PATH"] = IPCServer.socketPath
-
+        // Use shell integration for proper env injection (ZDOTDIR trick)
+        let env = ShellIntegration.shared.environment(sessionId: id, cwd: cwd)
         let envArray = env.map { "\($0.key)=\($0.value)" }
+
         view.startProcess(
             executable: "/usr/bin/env",
             args: ["claude"],
