@@ -73,7 +73,7 @@ class SurfaceManager: IPCServerDelegate {
         lock.unlock()
         for (id, surface) in dead {
             surface.stop()
-            NSLog("[SurfaceManager] Pruned dead surface: \(id)")
+            ptLog("[SurfaceManager] Pruned dead surface: \(id)")
         }
     }
 

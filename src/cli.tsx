@@ -154,13 +154,14 @@ program
 			const { promisify } = await import("node:util");
 			const execFileAsync = promisify(ef);
 
-			// Try Ghostty's new-tab action via AppleScript
+			// Open a new Ghostty window running pair-terminal
 			await execFileAsync("osascript", [
 				"-e", `tell application "Ghostty" to activate`,
 				"-e", `delay 0.3`,
-				"-e", `tell application "System Events" to tell process "ghostty" to keystroke "t" using command down`,
-				"-e", `delay 0.5`,
+				"-e", `tell application "System Events" to tell process "ghostty" to keystroke "n" using command down`,
+				"-e", `delay 0.8`,
 				"-e", `tell application "System Events" to keystroke "${command}"`,
+				"-e", `delay 0.1`,
 				"-e", `tell application "System Events" to key code 36`,
 			]);
 

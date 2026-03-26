@@ -84,7 +84,7 @@ class TerminalSurface {
         }
 
         self.pid = childPid
-        NSLog("[Surface \(id)] Started PID \(childPid) in \(cwd)")
+        ptLog("[Surface \(id)] Started PID \(childPid) in \(cwd)")
 
         readQueue.async { [weak self] in
             self?.readLoop()
@@ -101,7 +101,7 @@ class TerminalSurface {
         }
 
         if written > 0 {
-            NSLog("[Surface \(id)] Sent \(written) bytes")
+            ptLog("[Surface \(id)] Sent \(written) bytes")
         }
         return written > 0
     }
@@ -138,7 +138,7 @@ class TerminalSurface {
             close(masterFd)
             masterFd = -1
         }
-        NSLog("[Surface \(id)] Stopped")
+        ptLog("[Surface \(id)] Stopped")
     }
 
     private func readLoop() {

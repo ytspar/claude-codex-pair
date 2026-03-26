@@ -35,7 +35,11 @@ let isAttach = args.contains("--attach")
 let isLaunch = args.contains("--launch")
 
 if isAttach {
-    // Interactive mode — mirror Claude's PTY to the user's terminal
+    // Suppress all logging in attach mode — it interleaves with PTY output
+    quietMode = true
+    // Redirect stderr to /dev/null to suppress NSLog from Bridge module
+    freopen("/dev/null", "w", stderr)
+
     guard let cwdIdx = args.firstIndex(of: "--attach"), cwdIdx + 1 < args.count else {
         fputs("Usage: pair-terminal --attach <cwd> [--id <session-id>]\n", stderr)
         exit(1)
@@ -79,10 +83,7 @@ if isAttach {
             // Can't easily pass surface here, but the manager can find it
         }
 
-        fputs("\u{1B}[2J\u{1B}[H", stderr) // clear screen
-        fputs("[pair-terminal] Session \(id) in \(cwd)\n", stderr)
-        fputs("[pair-terminal] IPC: ~/.claude-codex-pair/pair-terminal.sock\n", stderr)
-        fputs("[pair-terminal] Codex can inject input via IPC\n\n", stderr)
+        // No header output — keep terminal clean for Claude
 
         // Wait for child process to exit
         DispatchQueue.global().async {
