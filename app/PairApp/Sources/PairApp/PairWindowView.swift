@@ -29,7 +29,14 @@ struct PairWindowView: View {
                     if sessionManager.sessions.isEmpty {
                         ZStack {
                             themeManager.bg
-                            EmptyTerminalView()
+                            EmptyTerminalView(onNewSession: promptNewSession)
+                        }
+                        .onAppear {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                if sessionManager.sessions.isEmpty {
+                                    promptNewSession()
+                                }
+                            }
                         }
                     } else if let active = sessionManager.activeSession {
                         TerminalContainerView(session: active)
@@ -86,6 +93,22 @@ struct PairWindowView: View {
         .coordinateSpace(name: "window")
         .background(themeManager.bg)
         .background(SessionShortcutButtons(sessionManager: sessionManager))
+    }
+
+    private func promptNewSession() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Launch Claude"
+        panel.message = "Choose a project directory for Claude Code"
+        panel.directoryURL = URL(fileURLWithPath: NSHomeDirectory() + "/git")
+
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                sessionManager.createSession(cwd: url.path)
+            }
+        }
     }
 }
 
@@ -166,27 +189,44 @@ struct SessionTab: View {
 
 struct EmptyTerminalView: View {
     @ObservedObject private var themeManager = ThemeManager.shared
+    var onNewSession: (() -> Void)?
+
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 24) {
             Image(systemName: "terminal")
                 .font(.system(size: 56))
                 .foregroundColor(themeManager.textMuted)
-            Text("No Claude sessions")
+            Text("Choose a project directory")
                 .font(.system(size: 22, weight: .medium, design: .monospaced))
                 .foregroundColor(themeManager.textSecondary)
+            Text("Claude Code will launch in the selected directory")
+                .font(.system(size: 13, design: .monospaced))
+                .foregroundColor(themeManager.textMuted)
+
+            Button(action: { onNewSession?() }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "folder")
+                    Text("Open Directory")
+                }
+                .font(.system(size: 14, weight: .medium, design: .monospaced))
+                .foregroundColor(themeManager.bg)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .background(themeManager.accent)
+                .cornerRadius(6)
+            }
+            .buttonStyle(.plain)
+
             HStack(spacing: 6) {
                 Text("⌘N")
-                    .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundColor(themeManager.textSecondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
                     .background(themeManager.bgCard)
-                    .cornerRadius(4)
-                Text("or")
-                    .font(.system(size: 14, design: .monospaced))
-                    .foregroundColor(themeManager.textMuted)
-                Text("pair launch <dir>")
-                    .font(.system(size: 14, design: .monospaced))
+                    .cornerRadius(3)
+                Text("to open later")
+                    .font(.system(size: 12, design: .monospaced))
                     .foregroundColor(themeManager.textMuted)
             }
         }
