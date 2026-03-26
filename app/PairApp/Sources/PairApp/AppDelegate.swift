@@ -42,7 +42,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        return true
+        return false  // Keep running even if window closes (for debugging)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
