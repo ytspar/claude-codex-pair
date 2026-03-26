@@ -1,0 +1,268 @@
+#!/usr/bin/env node
+import { Command } from "commander";
+import { render } from "ink";
+import { MonitorApp } from "./ui/MonitorApp.js";
+import { installHook, removeHook, isHookInstalled } from "./monitor/daemon.js";
+import { findActiveSessions, getMostRecentSession, isProcessAlive } from "./monitor/session-watcher.js";
+import { readState, removeState, listActiveStates } from "./monitor/state.js";
+import { callCodex, isCodexAvailable } from "./codex/client.js";
+import { buildReviewPrompt } from "./codex/prompt-builder.js";
+import { gitDiff } from "./shared/git.js";
+import { getConversationContext } from "./monitor/transcript.js";
+import { loadConfig, saveConfig } from "./shared/config.js";
+import { generateReport } from "./report/generator.js";
+import { listSessions } from "./report/logger.js";
+import { bold, cyan, dim, green, red, yellow, decisionColor } from "./shared/formatter.js";
+
+const program = new Command();
+
+program.name("pair").description("Codex reviews active Claude Code sessions").version("0.1.0");
+
+// ── pair start ──────────────────────────────────────────────────────────
+program
+	.command("start")
+	.description("Launch monitor: install hooks and start TUI dashboard")
+	.option("-s, --session <id>", "Target a specific session ID")
+	.action(async (opts: { session?: string }) => {
+		// Check codex availability
+		if (!(await isCodexAvailable())) {
+			console.error(red("Error: codex CLI not found on PATH."));
+			console.error(dim("Install it: npm install -g @openai/codex"));
+			process.exit(1);
+		}
+
+		// Install hook
+		const { installed, hookCommand } = installHook();
+		if (installed) {
+			console.log(green("✓ Stop hook installed"));
+			console.log(dim(`  command: ${hookCommand}`));
+		} else {
+			console.log(yellow("Hook already installed, skipping"));
+		}
+
+		const project = process.cwd();
+		const sessionId = opts.session;
+
+		// Scope the hook to targeted session/project if specified
+		const config = loadConfig();
+		if (sessionId) {
+			config.targetSessions = [sessionId];
+		} else {
+			config.targetSessions = null; // monitor all
+		}
+		saveConfig(config);
+
+		const allSessions = findActiveSessions();
+		console.log(dim(`Found ${allSessions.length} active session(s)`));
+		for (const s of allSessions) {
+			console.log(dim(`  ${s.sessionId.slice(0, 12)}  ${s.cwd.split("/").pop()}`));
+		}
+
+		// Hook is ONLY active while pair start is running
+		let cleaned = false;
+		const cleanup = () => {
+			if (cleaned) return;
+			cleaned = true;
+			removeHook();
+			console.log(dim("\nHook removed — Codex reviews stopped. Goodbye."));
+		};
+		process.on("SIGINT", () => {
+			cleanup();
+			process.exit(0);
+		});
+		process.on("SIGTERM", () => {
+			cleanup();
+			process.exit(0);
+		});
+		process.on("exit", cleanup);
+
+		console.log(green("\nStarting monitor...\n"));
+		console.log(dim("Hook is active ONLY while this TUI is running. Press q to quit and remove hook.\n"));
+		render(<MonitorApp sessionId={sessionId} project={project} />);
+	});
+
+// ── pair stop ───────────────────────────────────────────────────────────
+program
+	.command("stop")
+	.description("Remove hooks (safety net — quitting pair start already cleans up)")
+	.option("-s, --session <id>", "Clean up a specific session")
+	.action((opts: { session?: string }) => {
+		const removed = removeHook();
+		if (removed) {
+			console.log(green("✓ Hooks removed"));
+		} else {
+			console.log(yellow("No hook found to remove"));
+		}
+
+		if (opts.session) {
+			removeState(opts.session);
+			console.log(dim(`Cleaned up state for session ${opts.session}`));
+		}
+	});
+
+// ── pair status ─────────────────────────────────────────────────────────
+program
+	.command("status")
+	.description("Show current status of all sessions")
+	.option("-s, --session <id>", "Check a specific session")
+	.action((opts: { session?: string }) => {
+		const hookActive = isHookInstalled();
+		console.log(`Hook installed: ${hookActive ? green("yes") : dim("no")}\n`);
+
+		const sessions = findActiveSessions();
+		if (sessions.length === 0) {
+			console.log(dim("No active Claude Code sessions found."));
+			return;
+		}
+
+		console.log(bold(`Active sessions (${sessions.length}):\n`));
+		for (const s of sessions) {
+			const alive = isProcessAlive(s.pid);
+			const status = alive ? green("running") : dim("stopped");
+			const project = s.cwd.split("/").pop() ?? s.cwd;
+			const state = readState(s.sessionId);
+
+			console.log(`  ${cyan(s.sessionId.slice(0, 12))}  ${bold(project.padEnd(25))} ${status}`);
+			if (state) {
+				const decision = state.lastDecision ? decisionColor(state.lastDecision) : dim("none");
+				console.log(`    cycle: ${state.cycle}  status: ${state.status}  last: ${decision}`);
+			}
+		}
+
+		// Show detail for specific session if requested
+		if (opts.session) {
+			const state = readState(opts.session);
+			if (state) {
+				console.log(`\n${bold("Session detail:")} ${opts.session}`);
+				console.log(`  Cycle: ${bold(String(state.cycle))}`);
+				console.log(`  Status: ${state.status}`);
+				if (state.lastDecision) console.log(`  Last decision: ${decisionColor(state.lastDecision)}`);
+				if (state.lastResponse) console.log(`  Response: ${state.lastResponse.slice(0, 200)}`);
+			}
+		}
+	});
+
+// ── pair review ─────────────────────────────────────────────────────────
+program
+	.command("review")
+	.description("One-shot: Codex reviews current diff")
+	.option("-s, --session <id>", "Session to review")
+	.action(async (opts: { session?: string }) => {
+		if (!(await isCodexAvailable())) {
+			console.error(red("Error: codex CLI not found on PATH."));
+			process.exit(1);
+		}
+
+		const config = loadConfig();
+		const cwd = process.cwd();
+
+		// Gather context — use specified session or most recent
+		const diffResult = await gitDiff(cwd);
+		let sessionContext = "";
+		const allSessions = findActiveSessions();
+		const targetSession = opts.session
+			? allSessions.find((s) => s.sessionId.startsWith(opts.session!) || s.cwd.includes(opts.session!))
+			: getMostRecentSession();
+		if (targetSession) {
+			sessionContext = getConversationContext(targetSession.transcriptPath);
+		}
+
+		console.log(dim("Running Codex review..."));
+		const prompt = buildReviewPrompt({ cwd, diffResult, sessionContext });
+		const result = await callCodex({
+			prompt,
+			cwd,
+			timeout: config.codexTimeout,
+			model: config.codexModel,
+		});
+
+		console.log(`\n${decisionColor(result.decision)}`);
+		console.log(result.response);
+		console.log(dim(`\n(${(result.durationMs / 1000).toFixed(1)}s)`));
+	});
+
+// ── pair report ─────────────────────────────────────────────────────────
+program
+	.command("report")
+	.description("Generate markdown report for a session")
+	.option("-s, --session <id>", "Session to report on")
+	.action((opts: { session?: string }) => {
+		let sessionId = opts.session;
+
+		if (!sessionId) {
+			const sessions = listSessions();
+			if (sessions.length === 0) {
+				console.error(red("No sessions found."));
+				process.exit(1);
+			}
+			sessionId = sessions[sessions.length - 1];
+			console.error(dim(`Using most recent session: ${sessionId}`));
+		}
+
+		console.log(generateReport(sessionId));
+	});
+
+// ── pair config ─────────────────────────────────────────────────────────
+const configCmd = program
+	.command("config")
+	.description("Manage configuration")
+	.action(() => {
+		// Bare `pair config` shows config (same as `pair config show`)
+		const config = loadConfig();
+		console.log(JSON.stringify(config, null, 2));
+	});
+
+configCmd.command("show").action(() => {
+	const config = loadConfig();
+	console.log(JSON.stringify(config, null, 2));
+});
+
+configCmd
+	.command("set")
+	.argument("<key>", "Config key")
+	.argument("<value>", "Config value")
+	.action((key: string, value: string) => {
+		const config = loadConfig();
+		if (!(key in config)) {
+			console.error(red(`Unknown config key: ${key}`));
+			console.error(dim(`Valid keys: ${Object.keys(config).join(", ")}`));
+			process.exit(1);
+		}
+
+		// Type-specific validation
+		let parsed: unknown;
+		if (key === "targetSessions") {
+			// Must be null or a JSON array of strings
+			if (value === "null") {
+				parsed = null;
+			} else if (value.startsWith("[")) {
+				try {
+					const arr = JSON.parse(value);
+					if (!Array.isArray(arr) || !arr.every((v: unknown) => typeof v === "string")) {
+						console.error(red("targetSessions must be null or a JSON array of strings, e.g. '[\"my-project\"]'"));
+						process.exit(1);
+					}
+					parsed = arr;
+				} catch {
+					console.error(red(`Invalid JSON: ${value}`));
+					process.exit(1);
+				}
+			} else {
+				// Convenience: bare string → single-element array
+				parsed = [value];
+			}
+		} else {
+			// Generic scalar coercion
+			parsed = value;
+			if (value === "null") parsed = null;
+			else if (value === "true") parsed = true;
+			else if (value === "false") parsed = false;
+			else if (/^\d+$/.test(value)) parsed = Number.parseInt(value, 10);
+		}
+
+		(config as unknown as Record<string, unknown>)[key] = parsed;
+		saveConfig(config);
+		console.log(green(`✓ ${key} = ${JSON.stringify(parsed)}`));
+	});
+
+program.parse();

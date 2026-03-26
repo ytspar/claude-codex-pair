@@ -129,7 +129,7 @@ pair config set <key> <value>   # Update config
 - [ ] `src/monitor/daemon.ts` — install/remove Stop hook in `~/.claude/settings.json`
 - [ ] `src/monitor/hook-handler.ts` — standalone script, receives stdin, orchestrates Codex call
 - [ ] `src/monitor/state.ts` — shared state file for hook↔TUI communication
-- [ ] Test: manually trigger hook with mock stdin JSON
+- [x] Test: manually trigger hook with mock stdin JSON (validated — hook processes input, calls Codex, returns verdict)
 
 ### Phase 4: Ink TUI
 - [ ] `src/ui/StatusBar.tsx` — session info + cycle count
@@ -144,7 +144,7 @@ pair config set <key> <value>   # Update config
 - [ ] Wire `pair stop` to remove hooks
 - [ ] Wire `pair review` for one-shot Codex review
 - [ ] Wire `pair report` for report generation
-- [ ] `npm link` and test end-to-end
+- [x] `npm link` and test end-to-end (validated — `pair --version`, `pair config`, `pair status`, `pair review`, `pair report` all work)
 
 ### Phase 6: Polish
 - [ ] README.md with usage examples
@@ -168,7 +168,17 @@ Default 5 cycles. After that, auto-approve to prevent infinite loops. Configurab
 If Codex fails, times out, or isn't installed, the hook exits 0 (Claude proceeds normally). The TUI shows the error but doesn't block Claude.
 
 ### Hook installation is reversible
-`pair start` saves a backup of `~/.claude/settings.json` before modifying it. `pair stop` restores the backup. Clean uninstall guaranteed.
+`pair start` adds our hooks to `~/.claude/settings.json`. `pair stop` (or quitting the TUI) removes them by filtering out our specific entries, preserving all other hooks. Clean uninstall guaranteed.
+
+### PermissionRequest hook (Codex-gated)
+A second hook handles Claude's permission requests (Write, Edit, Bash). Read-only tools are auto-approved. For mutations, Codex makes a quick YES/NO decision — approving unless clearly dangerous. This prevents Claude from blocking on permission dialogs during paired sessions while keeping Codex as the safety gate.
+
+### Ghostty input injection
+When Codex needs to respond to Claude (answering questions, sending feedback), it types into the correct Ghostty terminal window via macOS AppleScript/System Events. This is more effective than hook block reasons because Claude receives it as real user input. Clipboard is saved/restored, focus is verified before pasting, and the system falls back to hook block if Ghostty is unavailable.
+
+### Two prompt modes
+- **Review mode**: Claude finished working → Codex checks if the original task is complete
+- **Respond mode**: Claude asked a question → Codex answers as the human, always choosing the most thorough option
 
 ## Codex Review Prompt Template
 
