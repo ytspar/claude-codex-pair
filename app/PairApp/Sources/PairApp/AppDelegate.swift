@@ -92,6 +92,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // View menu
         let viewMenu = NSMenu(title: "View")
+        viewMenu.addItem(withTitle: "Toggle Theme (Devbar/Ghostty)", action: #selector(toggleTheme), keyEquivalent: "t")
+        viewMenu.addItem(NSMenuItem.separator())
         viewMenu.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
 
         let viewMenuItem = NSMenuItem()
@@ -109,6 +111,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         NSApp.mainMenu = mainMenu
         NSApp.windowsMenu = windowMenu
+    }
+
+    @objc func toggleTheme() {
+        ThemeManager.shared.toggle()
     }
 
     @objc func newSession() {
