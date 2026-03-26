@@ -18,6 +18,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.center()
         window.isReleasedWhenClosed = false
         window.level = .normal
+        window.backgroundColor = NSColor(red: 0.039, green: 0.059, blue: 0.102, alpha: 1.0)  // Theme.bg
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
 
         let contentView = PairWindowView()
         window.contentView = NSHostingView(rootView: contentView)
