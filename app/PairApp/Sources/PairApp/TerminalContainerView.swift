@@ -11,6 +11,13 @@ struct TerminalContainerView: NSViewRepresentable {
         let termView = LocalProcessTerminalView(frame: .zero)
         termView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
 
+        // Hide the scrollbar — it creates a gray bar on the right edge
+        for subview in termView.subviews {
+            if let scroller = subview as? NSScroller {
+                scroller.isHidden = true
+            }
+        }
+
         applyTheme(to: termView)
 
         context.coordinator.terminalView = termView
@@ -21,7 +28,12 @@ struct TerminalContainerView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: LocalProcessTerminalView, context: Context) {
-        // Re-apply theme when ThemeManager changes
+        // Hide scrollbar on every update (it may be added lazily)
+        for subview in nsView.subviews {
+            if let scroller = subview as? NSScroller {
+                scroller.isHidden = true
+            }
+        }
         applyTheme(to: nsView)
     }
 
