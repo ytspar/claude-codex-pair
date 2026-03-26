@@ -3,43 +3,42 @@ import SwiftUI
 struct PairWindowView: View {
     @ObservedObject private var sessionManager = SessionManager.shared
     @ObservedObject private var themeManager = ThemeManager.shared
+    @State private var codexWidth: CGFloat = 420
 
     var body: some View {
-        GeometryReader { geo in
-            // Native NSSplitView via HSplitView — smooth native drag, no double bar
-            HSplitView {
-                // Left: Terminal sessions
-                VStack(spacing: 0) {
-                    if sessionManager.sessions.count > 1 {
-                        SessionTabBar(
-                            sessions: sessionManager.sessions,
-                            selectedId: sessionManager.activeSessionId,
-                            onSelect: { sessionManager.activeSessionId = $0 },
-                            onClose: { sessionManager.removeSession($0) }
-                        )
-                    }
-
-                    ZStack {
-                        themeManager.bg
-
-                        if sessionManager.sessions.isEmpty {
-                            EmptyTerminalView()
-                        } else if let active = sessionManager.activeSession {
-                            TerminalContainerView(session: active)
-                                .id(active.id)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-                .frame(minWidth: 400, idealWidth: geo.size.width * 0.6)
-
-                // Right: Codex panel
-                CodexPanelView()
-                    .frame(minWidth: 250, idealWidth: geo.size.width * 0.4)
-            }
-        }
+        ThinSplitView(
+            left: leftPane,
+            right: CodexPanelView(),
+            dividerColor: NSColor(themeManager.border),
+            rightWidth: $codexWidth
+        )
         .background(themeManager.bg)
         .background(SessionShortcutButtons(sessionManager: sessionManager))
+    }
+
+    private var leftPane: some View {
+        VStack(spacing: 0) {
+            if sessionManager.sessions.count > 1 {
+                SessionTabBar(
+                    sessions: sessionManager.sessions,
+                    selectedId: sessionManager.activeSessionId,
+                    onSelect: { sessionManager.activeSessionId = $0 },
+                    onClose: { sessionManager.removeSession($0) }
+                )
+            }
+
+            ZStack {
+                themeManager.bg
+
+                if sessionManager.sessions.isEmpty {
+                    EmptyTerminalView()
+                } else if let active = sessionManager.activeSession {
+                    TerminalContainerView(session: active)
+                        .id(active.id)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 }
 
