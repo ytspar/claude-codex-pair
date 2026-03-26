@@ -39,33 +39,48 @@ struct PairWindowView: View {
                 .frame(width: leftWidth)
                 .clipped()
 
-                // 1px divider with invisible drag area
-                Rectangle()
-                    .fill(isDragging ? themeManager.accent : themeManager.accent.opacity(0.15))
-                    .frame(width: 1)
-                    .padding(.horizontal, 4)
-                    .contentShape(Rectangle().size(width: 12, height: 10000))
-                    .onHover { h in
-                        if h { NSCursor.resizeLeftRight.push() }
-                        else { NSCursor.pop() }
-                    }
-                    .gesture(
-                        DragGesture(coordinateSpace: .named("window"))
-                            .updating($dragOffset) { value, state, _ in
-                                state = value.translation.width
-                            }
-                            .onChanged { _ in isDragging = true }
-                            .onEnded { value in
-                                isDragging = false
-                                let newX = geo.size.width * (1 - codexFraction) + value.translation.width
-                                let clamped = min(max(200, newX), geo.size.width - 200)
-                                codexFraction = 1 - (clamped / geo.size.width)
-                            }
-                    )
+                // Divider: 1px line, no padding, wide invisible hit area via overlay
+                ZStack {
+                    // Fill with exact terminal bg color (NSColor → Color to avoid color space mismatch)
+                    Color(nsColor: themeManager.mode == .ghostty
+                        ? (GhosttyConfig.load().background ?? GhosttyConfig.devbarBackground)
+                        : GhosttyConfig.devbarBackground)
+                    .frame(width: 12)
+
+                    // Visible 1px line
+                    Rectangle()
+                        .fill(isDragging ? themeManager.accent : themeManager.accent.opacity(0.15))
+                        .frame(width: 1)
+
+                    // Drag grip icon centered
+                    Image(systemName: "line.3.horizontal")
+                        .font(.system(size: 7))
+                        .foregroundColor(themeManager.textMuted.opacity(isDragging ? 1 : 0.6))
+                        .rotationEffect(.degrees(90))
+                }
+                .frame(width: 12)
+                .contentShape(Rectangle())
+                .onHover { h in
+                    if h { NSCursor.resizeLeftRight.push() }
+                    else { NSCursor.pop() }
+                }
+                .gesture(
+                    DragGesture(coordinateSpace: .named("window"))
+                        .updating($dragOffset) { value, state, _ in
+                            state = value.translation.width
+                        }
+                        .onChanged { _ in isDragging = true }
+                        .onEnded { value in
+                            isDragging = false
+                            let newX = geo.size.width * (1 - codexFraction) + value.translation.width
+                            let clamped = min(max(200, newX), geo.size.width - 200)
+                            codexFraction = 1 - (clamped / geo.size.width)
+                        }
+                )
 
                 // Right: Codex panel
                 CodexPanelView()
-                    .frame(width: rightWidth - 9)  // subtract divider padding
+                    .frame(width: rightWidth - 12)  // subtract divider width
             }
         }
         .coordinateSpace(name: "window")
