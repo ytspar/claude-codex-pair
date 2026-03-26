@@ -7,34 +7,51 @@ struct TerminalContainerView: NSViewRepresentable {
     @ObservedObject var session: PairSession
     @ObservedObject var themeManager = ThemeManager.shared
 
-    func makeNSView(context: Context) -> LocalProcessTerminalView {
+    func makeNSView(context: Context) -> NSView {
         let termView = LocalProcessTerminalView(frame: .zero)
         termView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
 
-        // Hide the scrollbar — it creates a gray bar on the right edge
-        for subview in termView.subviews {
-            if let scroller = subview as? NSScroller {
-                scroller.isHidden = true
-            }
-        }
+        // Layer-backed for smooth resize (prevents flashing)
+        termView.wantsLayer = true
+        termView.layerContentsRedrawPolicy = .onSetNeedsDisplay
+        termView.canDrawConcurrently = true
 
+        hideScroller(termView)
         applyTheme(to: termView)
 
         context.coordinator.terminalView = termView
         session.terminalView = termView
         session.start(in: termView)
 
-        return termView
+        // Wrap in a container that clips and handles resize smoothly
+        let container = TerminalHostView()
+        container.wantsLayer = true
+        container.layer?.masksToBounds = true
+        termView.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(termView)
+        NSLayoutConstraint.activate([
+            termView.topAnchor.constraint(equalTo: container.topAnchor),
+            termView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            termView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            termView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+        ])
+        context.coordinator.container = container
+
+        return container
     }
 
-    func updateNSView(_ nsView: LocalProcessTerminalView, context: Context) {
-        // Hide scrollbar on every update (it may be added lazily)
-        for subview in nsView.subviews {
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let termView = context.coordinator.terminalView else { return }
+        hideScroller(termView)
+        applyTheme(to: termView)
+    }
+
+    private func hideScroller(_ view: NSView) {
+        for subview in view.subviews {
             if let scroller = subview as? NSScroller {
                 scroller.isHidden = true
             }
         }
-        applyTheme(to: nsView)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -87,9 +104,30 @@ struct TerminalContainerView: NSViewRepresentable {
     class Coordinator {
         let session: PairSession
         var terminalView: LocalProcessTerminalView?
+        var container: TerminalHostView?
 
         init(session: PairSession) {
             self.session = session
+        }
+    }
+}
+
+/// Host view that prevents flashing during live resize by using layer caching.
+class TerminalHostView: NSView {
+    override var isOpaque: Bool { true }
+
+    override func viewWillStartLiveResize() {
+        super.viewWillStartLiveResize()
+        // Freeze the layer content during resize to prevent flashing
+        layer?.shouldRasterize = true
+    }
+
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        layer?.shouldRasterize = false
+        // Force terminal to redraw at new size
+        for subview in subviews {
+            subview.needsDisplay = true
         }
     }
 }
