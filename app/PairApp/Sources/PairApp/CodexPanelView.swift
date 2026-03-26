@@ -3,20 +3,21 @@ import SwiftUI
 /// Codex review panel — devbar-inspired terminal aesthetic.
 struct CodexPanelView: View {
     @StateObject private var store = CodexStore()
+    @ObservedObject private var tm = ThemeManager.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // ── Header ──
             HStack {
                 // Notched wing left
-                Rectangle().fill(Theme.border).frame(width: 12, height: 1)
+                Rectangle().fill(tm.border).frame(width: 12, height: 1)
                 Text("CODEX REVIEW")
                     .font(Theme.monoSmall)
                     .fontWeight(.bold)
-                    .foregroundColor(Theme.emerald)
+                    .foregroundColor(tm.accent)
                     .tracking(1.5)
                 // Notched wing right
-                Rectangle().fill(Theme.border).frame(height: 1)
+                Rectangle().fill(tm.border).frame(height: 1)
             }
             .padding(.horizontal, 12)
             .padding(.top, 12)
@@ -32,11 +33,11 @@ struct CodexPanelView: View {
                 Spacer()
                 Text("CYCLE \(store.state.cycle)")
                     .font(Theme.monoTiny)
-                    .foregroundColor(Theme.textSecondary)
+                    .foregroundColor(tm.textSecondary)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 6)
-            .background(Theme.bgElevated)
+            .background(tm.bgElevated)
 
             // ── Decision badge ──
             if !store.state.decision.isEmpty {
@@ -55,7 +56,7 @@ struct CodexPanelView: View {
                 .padding(.top, 8)
             }
 
-            Divider().background(Theme.border).padding(.horizontal, 12).padding(.vertical, 8)
+            Divider().background(tm.border).padding(.horizontal, 12).padding(.vertical, 8)
 
             // ── Scrollable content ──
             ScrollView {
@@ -65,7 +66,7 @@ struct CodexPanelView: View {
                         CardView(title: "TASK") {
                             Text(store.state.task)
                                 .font(Theme.monoTiny)
-                                .foregroundColor(Theme.text)
+                                .foregroundColor(tm.text)
                                 .lineLimit(6)
                         }
                     }
@@ -75,7 +76,7 @@ struct CodexPanelView: View {
                         CardView(title: "FEEDBACK") {
                             Text(store.state.feedback)
                                 .font(Theme.monoTiny)
-                                .foregroundColor(Theme.text)
+                                .foregroundColor(tm.text)
                                 .textSelection(.enabled)
                         }
                     }
@@ -88,7 +89,7 @@ struct CodexPanelView: View {
                                     HStack(spacing: 8) {
                                         Text("#\(entry.cycle)")
                                             .font(Theme.monoTiny)
-                                            .foregroundColor(Theme.textMuted)
+                                            .foregroundColor(tm.textMuted)
                                             .frame(width: 24, alignment: .trailing)
                                         Text(entry.decision)
                                             .font(Theme.monoTiny)
@@ -96,13 +97,13 @@ struct CodexPanelView: View {
                                             .foregroundColor(decisionColor(entry.decision))
                                         Text("\(entry.durationSec)s")
                                             .font(Theme.monoTiny)
-                                            .foregroundColor(Theme.textMuted)
+                                            .foregroundColor(tm.textMuted)
                                         Spacer()
                                     }
                                     if !entry.summary.isEmpty {
                                         Text(entry.summary)
                                             .font(Theme.monoTiny)
-                                            .foregroundColor(Theme.textSecondary)
+                                            .foregroundColor(tm.textSecondary)
                                             .lineLimit(2)
                                             .padding(.leading, 32)
                                     }
@@ -119,41 +120,42 @@ struct CodexPanelView: View {
             // ── Footer ──
             HStack(spacing: 6) {
                 Circle()
-                    .fill(store.state.status == "reviewing" ? Theme.warning : Theme.textMuted)
+                    .fill(store.state.status == "reviewing" ? tm.warning : tm.textMuted)
                     .frame(width: 5, height: 5)
                 Text("IPC: pair-terminal.sock")
                     .font(Theme.monoTiny)
-                    .foregroundColor(Theme.textMuted)
+                    .foregroundColor(tm.textMuted)
                 Spacer()
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
-        .background(Theme.bg)
+        .background(tm.bg)
     }
 
     func statusColor(_ s: String) -> Color {
         switch s {
-        case "reviewing": return Theme.warning
-        case "approved": return Theme.emerald
-        case "feedback": return Theme.purple
-        case "error": return Theme.error
-        default: return Theme.textMuted
+        case "reviewing": return tm.warning
+        case "approved": return tm.accent
+        case "feedback": return tm.purple
+        case "error": return tm.error
+        default: return tm.textMuted
         }
     }
 
     func decisionColor(_ d: String) -> Color {
         switch d {
-        case "APPROVE": return Theme.emerald
-        case "FEEDBACK": return Theme.warning
-        case "CONTEXT": return Theme.cyan
-        default: return Theme.textMuted
+        case "APPROVE": return tm.accent
+        case "FEEDBACK": return tm.warning
+        case "CONTEXT": return tm.cyan
+        default: return tm.textMuted
         }
     }
 }
 
 /// Devbar-style notched card with wing header.
 struct CardView<Content: View>: View {
+    @ObservedObject private var tm = ThemeManager.shared
     let title: String
     @ViewBuilder let content: Content
 
@@ -161,14 +163,14 @@ struct CardView<Content: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             // Wing header
             HStack(spacing: 0) {
-                Rectangle().fill(Theme.border).frame(width: 12, height: 1)
+                Rectangle().fill(tm.border).frame(width: 12, height: 1)
                 Text(title)
                     .font(Theme.monoTiny)
                     .fontWeight(.bold)
-                    .foregroundColor(Theme.emerald.opacity(0.7))
+                    .foregroundColor(tm.accent.opacity(0.7))
                     .tracking(1.0)
                     .padding(.horizontal, 6)
-                Rectangle().fill(Theme.border).frame(height: 1)
+                Rectangle().fill(tm.border).frame(height: 1)
             }
 
             // Content with side borders
@@ -178,7 +180,7 @@ struct CardView<Content: View>: View {
             .padding(10)
             .overlay(
                 RoundedRectangle(cornerRadius: 0)
-                    .strokeBorder(Theme.border, lineWidth: 1)
+                    .strokeBorder(tm.border, lineWidth: 1)
             )
         }
     }
@@ -186,15 +188,16 @@ struct CardView<Content: View>: View {
 
 /// Animated status dot.
 struct StatusDot: View {
+    @ObservedObject private var tm = ThemeManager.shared
     let status: String
 
     var color: Color {
         switch status {
-        case "reviewing": return Theme.warning
-        case "approved": return Theme.emerald
-        case "feedback": return Theme.purple
-        case "error": return Theme.error
-        default: return Theme.textMuted
+        case "reviewing": return tm.warning
+        case "approved": return tm.accent
+        case "feedback": return tm.purple
+        case "error": return tm.error
+        default: return tm.textMuted
         }
     }
 

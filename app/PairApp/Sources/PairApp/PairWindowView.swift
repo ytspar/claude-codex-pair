@@ -3,12 +3,19 @@ import SwiftUI
 struct PairWindowView: View {
     @ObservedObject private var sessionManager = SessionManager.shared
     @ObservedObject private var themeManager = ThemeManager.shared
-    @State private var codexWidth: CGFloat = 420
+    @State private var codexFraction: CGFloat = 0.35
+    @State private var isDragging = false
+    @GestureState private var dragOffset: CGFloat = 0
 
     var body: some View {
         GeometryReader { geo in
+            let dividerX = geo.size.width * (1 - codexFraction) + dragOffset
+            let clampedX = min(max(200, dividerX), geo.size.width - 200)
+            let leftWidth = clampedX
+            let rightWidth = geo.size.width - clampedX
+
             HStack(spacing: 0) {
-                // Left: Terminal sessions
+                // Left: Terminal
                 VStack(spacing: 0) {
                     if sessionManager.sessions.count > 1 {
                         SessionTabBar(
@@ -19,29 +26,49 @@ struct PairWindowView: View {
                         )
                     }
 
-                    ZStack {
-                        themeManager.bg
-
-                        if sessionManager.sessions.isEmpty {
+                    if sessionManager.sessions.isEmpty {
+                        ZStack {
+                            themeManager.bg
                             EmptyTerminalView()
-                        } else if let active = sessionManager.activeSession {
-                            TerminalContainerView(session: active)
-                                .id(active.id)
                         }
+                    } else if let active = sessionManager.activeSession {
+                        TerminalContainerView(session: active)
+                            .id(active.id)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+                .frame(width: leftWidth)
+                .clipped()
 
-                // 1px divider — just a colored rectangle, no NSSplitView
+                // 1px divider with invisible drag area
                 Rectangle()
-                    .fill(themeManager.accent.opacity(0.3))
+                    .fill(isDragging ? themeManager.accent : themeManager.accent.opacity(0.15))
                     .frame(width: 1)
+                    .padding(.horizontal, 4)
+                    .contentShape(Rectangle().size(width: 12, height: 10000))
+                    .onHover { h in
+                        if h { NSCursor.resizeLeftRight.push() }
+                        else { NSCursor.pop() }
+                    }
+                    .gesture(
+                        DragGesture(coordinateSpace: .named("window"))
+                            .updating($dragOffset) { value, state, _ in
+                                state = value.translation.width
+                            }
+                            .onChanged { _ in isDragging = true }
+                            .onEnded { value in
+                                isDragging = false
+                                let newX = geo.size.width * (1 - codexFraction) + value.translation.width
+                                let clamped = min(max(200, newX), geo.size.width - 200)
+                                codexFraction = 1 - (clamped / geo.size.width)
+                            }
+                    )
 
                 // Right: Codex panel
                 CodexPanelView()
-                    .frame(width: codexWidth)
+                    .frame(width: rightWidth - 9)  // subtract divider padding
             }
         }
+        .coordinateSpace(name: "window")
         .background(themeManager.bg)
         .background(SessionShortcutButtons(sessionManager: sessionManager))
     }
