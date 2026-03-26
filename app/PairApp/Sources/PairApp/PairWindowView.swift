@@ -84,11 +84,6 @@ struct PairWindowView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            // Divider — emerald accent line
-            Rectangle()
-                .fill(Theme.border)
-                .frame(width: 1)
-
             // Right: Codex panel
             CodexPanelView()
                 .frame(minWidth: 300, idealWidth: 420, maxWidth: 500)
