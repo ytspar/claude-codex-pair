@@ -29,6 +29,10 @@ class ThemeManager: ObservableObject {
     @Published var purple: Color = Theme.purple
     @Published var cyan: Color = Theme.cyan
 
+    // Font settings from Ghostty config
+    @Published var fontFamily: String = "SF Mono"
+    @Published var fontSize: CGFloat = 13
+
     private var ghosttyConfig: GhosttyConfig?
 
     private init() {
@@ -66,6 +70,10 @@ class ThemeManager: ObservableObject {
             let config = ghosttyConfig ?? GhosttyConfig.load()
             let ghosttyBg = config.background ?? GhosttyConfig.devbarBackground
             let ghosttyFg = config.foreground ?? GhosttyConfig.devbarForeground
+
+            // Fonts from Ghostty config
+            if let family = config.fontFamily { fontFamily = family }
+            if let size = config.fontSize { fontSize = size }
 
             bg = Color(nsColor: ghosttyBg)
             bgCard = Color(nsColor: ghosttyBg).opacity(0.95)

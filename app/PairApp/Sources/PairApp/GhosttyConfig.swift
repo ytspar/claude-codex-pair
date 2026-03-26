@@ -8,6 +8,8 @@ struct GhosttyConfig {
     var cursorColor: NSColor?
     var palette: [Int: NSColor] = [:]
     var theme: String?
+    var fontFamily: String?
+    var fontSize: CGFloat?
 
     /// Load from the user's Ghostty config file.
     static func load() -> GhosttyConfig {
@@ -43,9 +45,12 @@ struct GhosttyConfig {
                 config.foreground = NSColor(hex: value)
             case "cursor-color":
                 config.cursorColor = NSColor(hex: value)
+            case "font-family":
+                config.fontFamily = value.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            case "font-size":
+                config.fontSize = CGFloat(Double(value) ?? 13.0)
             case "theme":
                 config.theme = value
-                // Load theme file palette
                 loadTheme(named: value, into: &config)
             default:
                 // Palette entries: palette = N=RRGGBB

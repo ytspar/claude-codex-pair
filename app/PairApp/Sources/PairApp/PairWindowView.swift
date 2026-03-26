@@ -3,38 +3,44 @@ import SwiftUI
 struct PairWindowView: View {
     @ObservedObject private var sessionManager = SessionManager.shared
     @ObservedObject private var themeManager = ThemeManager.shared
+    @State private var codexWidth: CGFloat = 420
 
     var body: some View {
-        // Use native HSplitView but style the NSSplitView divider via appearance
-        HSplitView {
-            // Left: Terminal sessions
-            VStack(spacing: 0) {
-                if sessionManager.sessions.count > 1 {
-                    SessionTabBar(
-                        sessions: sessionManager.sessions,
-                        selectedId: sessionManager.activeSessionId,
-                        onSelect: { sessionManager.activeSessionId = $0 },
-                        onClose: { sessionManager.removeSession($0) }
-                    )
-                }
-
-                ZStack {
-                    themeManager.bg
-
-                    if sessionManager.sessions.isEmpty {
-                        EmptyTerminalView()
-                    } else if let active = sessionManager.activeSession {
-                        TerminalContainerView(session: active)
-                            .id(active.id)
+        GeometryReader { geo in
+            HStack(spacing: 0) {
+                // Left: Terminal sessions
+                VStack(spacing: 0) {
+                    if sessionManager.sessions.count > 1 {
+                        SessionTabBar(
+                            sessions: sessionManager.sessions,
+                            selectedId: sessionManager.activeSessionId,
+                            onSelect: { sessionManager.activeSessionId = $0 },
+                            onClose: { sessionManager.removeSession($0) }
+                        )
                     }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .frame(minWidth: 400)
 
-            // Right: Codex panel
-            CodexPanelView()
-                .frame(minWidth: 280, maxWidth: 600)
+                    ZStack {
+                        themeManager.bg
+
+                        if sessionManager.sessions.isEmpty {
+                            EmptyTerminalView()
+                        } else if let active = sessionManager.activeSession {
+                            TerminalContainerView(session: active)
+                                .id(active.id)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+
+                // 1px divider — just a colored rectangle, no NSSplitView
+                Rectangle()
+                    .fill(themeManager.accent.opacity(0.3))
+                    .frame(width: 1)
+
+                // Right: Codex panel
+                CodexPanelView()
+                    .frame(width: codexWidth)
+            }
         }
         .background(themeManager.bg)
         .background(SessionShortcutButtons(sessionManager: sessionManager))

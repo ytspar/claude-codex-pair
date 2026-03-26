@@ -26,7 +26,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.title = "Pair — Claude + Codex"
         window.center()
         window.isReleasedWhenClosed = false
-        window.backgroundColor = NSColor(red: 0.039, green: 0.059, blue: 0.102, alpha: 1.0)
+        window.backgroundColor = NSColor(ThemeManager.shared.bg)
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .visible
         window.styleMask.insert(.fullSizeContentView)
