@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { spawn, type ChildProcess } from "node:child_process";
+import path from "node:path";
+import fs from "node:fs";
 import { Command } from "commander";
 import { render } from "ink";
 import { MonitorApp } from "./ui/MonitorApp.js";
@@ -13,6 +16,24 @@ import { loadConfig, saveConfig } from "./shared/config.js";
 import { generateReport } from "./report/generator.js";
 import { listSessions } from "./report/logger.js";
 import { bold, cyan, dim, green, red, yellow, decisionColor } from "./shared/formatter.js";
+
+/** Launch pair-terminal daemon and return the child process. */
+function launchPairTerminal(): ChildProcess | null {
+	const binaryPath = path.resolve(import.meta.dirname, "pair-terminal");
+	if (!fs.existsSync(binaryPath)) {
+		return null;
+	}
+
+	const child = spawn(binaryPath, [], {
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+
+	child.stdout?.on("data", () => {}); // drain
+	child.stderr?.on("data", () => {}); // drain
+	child.unref(); // don't keep Node alive just for this
+
+	return child;
+}
 
 const program = new Command();
 
@@ -58,13 +79,24 @@ program
 			console.log(dim(`  ${s.sessionId.slice(0, 12)}  ${s.cwd.split("/").pop()}`));
 		}
 
+		// Launch pair-terminal daemon for reliable input injection
+		const ptChild = launchPairTerminal();
+		if (ptChild) {
+			console.log(green("✓ pair-terminal daemon started"));
+		} else {
+			console.log(dim("pair-terminal binary not found — using Ghostty/hook fallback"));
+		}
+
 		// Hook is ONLY active while pair start is running
 		let cleaned = false;
 		const cleanup = () => {
 			if (cleaned) return;
 			cleaned = true;
 			removeHook();
-			console.log(dim("\nHook removed — Codex reviews stopped. Goodbye."));
+			if (ptChild && !ptChild.killed) {
+				ptChild.kill("SIGTERM");
+			}
+			console.log(dim("\nHook removed, pair-terminal stopped. Goodbye."));
 		};
 		process.on("SIGINT", () => {
 			cleanup();

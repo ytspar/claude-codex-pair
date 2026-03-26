@@ -2,3 +2,4 @@ node_modules/
 dist/
 *.tsbuildinfo
 native/pair-terminal/.build/
+native/pair-terminal/.swiftpm/

@@ -8,7 +8,7 @@
     "pair": "./dist/cli.js"
   },
   "scripts": {
-    "build": "tsc && chmod +x dist/cli.js dist/monitor/hook-handler.js",
+    "build": "tsc && chmod +x dist/cli.js dist/monitor/hook-handler.js && cd native/pair-terminal && swift build -c release && cp .build/release/pair-terminal ../../dist/pair-terminal",
     "dev": "tsx src/cli.tsx",
     "lint": "biome check .",
     "test": "vitest run --passWithNoTests",
