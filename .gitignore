@@ -4,3 +4,4 @@ dist/
 native/pair-terminal/.build/
 native/pair-terminal/.swiftpm/
 app/PairApp/.build/
+.DS_Store
