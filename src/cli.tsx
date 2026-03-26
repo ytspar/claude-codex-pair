@@ -134,48 +134,64 @@ program
 // ── pair launch ─────────────────────────────────────────────────────────
 program
 	.command("launch [directory]")
-	.description("Launch a Claude session in pair-terminal (Codex can inject input)")
+	.description("Launch a Claude session in PairApp (Codex can inject input)")
 	.option("--id <id>", "Session ID")
 	.action(async (directory?: string, opts?: { id?: string }) => {
 		const cwd = directory ? path.resolve(directory) : process.cwd();
-		const binaryPath = path.resolve(import.meta.dirname, "pair-terminal");
-
-		if (!fs.existsSync(binaryPath)) {
-			console.error(red("pair-terminal binary not found. Run: npm run build"));
-			process.exit(1);
-		}
-
 		const id = opts?.id ?? `pair-${Date.now().toString(36)}`;
+		const appBinary = path.resolve(import.meta.dirname, "..", "app", "PairApp", ".build", "debug", "PairApp");
+		const releaseBinary = path.resolve(import.meta.dirname, "..", "app", "PairApp", ".build", "release", "PairApp");
+		const binary = fs.existsSync(releaseBinary) ? releaseBinary : appBinary;
 
-		// Open a new Ghostty tab running pair-terminal in attach mode
-		const command = `${binaryPath} --attach ${cwd} --id ${id}`;
-		try {
-			const { execFile: ef } = await import("node:child_process");
-			const { promisify } = await import("node:util");
-			const execFileAsync = promisify(ef);
+		// Check if PairApp is already running
+		const { isPairTerminalRunning, sendInputViaPairTerminal } = await import("./shared/pair-terminal.js");
+		const appRunning = await isPairTerminalRunning();
 
-			// Open a new Ghostty window running pair-terminal
-			await execFileAsync("osascript", [
-				"-e", `tell application "Ghostty" to activate`,
-				"-e", `delay 0.3`,
-				"-e", `tell application "System Events" to tell process "ghostty" to keystroke "n" using command down`,
-				"-e", `delay 0.8`,
-				"-e", `tell application "System Events" to keystroke "${command}"`,
-				"-e", `delay 0.1`,
-				"-e", `tell application "System Events" to key code 36`,
-			]);
+		if (!appRunning) {
+			// Launch PairApp
+			if (!fs.existsSync(binary)) {
+				console.error(red("PairApp not found. Build with: cd app/PairApp && swift build"));
+				process.exit(1);
+			}
+			console.log(dim("Starting PairApp..."));
+			const child = spawn(binary, [], { stdio: "ignore", detached: true });
+			child.unref();
 
-			console.log(green(`✓ Launched Claude session: ${id}`));
-			console.log(dim(`  directory: ${cwd}`));
-			console.log(dim(`  Codex can inject input via IPC`));
-		} catch (err) {
-			// Fallback: run in current terminal
-			console.log(dim("Could not open Ghostty tab. Running in current terminal..."));
-			const child = spawn(binaryPath, ["--attach", cwd, "--id", id], {
-				stdio: "inherit",
-			});
-			child.on("exit", (code) => process.exit(code ?? 0));
+			// Wait for IPC to be ready
+			for (let i = 0; i < 20; i++) {
+				await new Promise((r) => setTimeout(r, 500));
+				if (await isPairTerminalRunning()) break;
+			}
+
+			if (!(await isPairTerminalRunning())) {
+				console.error(red("PairApp failed to start"));
+				process.exit(1);
+			}
 		}
+
+		// Create session via IPC
+		const net = await import("node:net");
+		const socketPath = path.join(process.env.HOME ?? "", ".claude-codex-pair", "pair-terminal.sock");
+		await new Promise<void>((resolve, reject) => {
+			const client = net.createConnection(socketPath);
+			client.on("connect", () => {
+				client.write(JSON.stringify({ action: "create_session", surface: id, text: cwd }));
+			});
+			client.on("data", (d) => {
+				const resp = JSON.parse(d.toString());
+				if (resp.ok) {
+					console.log(green(`✓ Launched Claude session: ${id}`));
+					console.log(dim(`  directory: ${cwd}`));
+					console.log(dim(`  Codex injects input via PairApp IPC`));
+				} else {
+					console.error(red(`Failed: ${resp.error}`));
+				}
+				client.destroy();
+				resolve();
+			});
+			client.on("error", (e) => { reject(e); });
+			setTimeout(() => reject(new Error("timeout")), 5000);
+		});
 	});
 
 // ── pair status ─────────────────────────────────────────────────────────
