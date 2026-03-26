@@ -16,7 +16,8 @@ import { gitDiff } from "../shared/git.js";
 import { getConversationContext, getTaskContext } from "./transcript.js";
 import { logInteraction, readSessionLog } from "../report/logger.js";
 import { readState, updateState } from "./state.js";
-import { sendInput } from "../shared/ghostty.js";
+import { sendInput as sendInputGhostty } from "../shared/ghostty.js";
+import { isPairTerminalRunning, sendInputViaPairTerminal } from "../shared/pair-terminal.js";
 import { findActiveSessions } from "./session-watcher.js";
 import type { HookInput, HookResponse } from "../types.js";
 
@@ -149,12 +150,25 @@ async function main(): Promise<void> {
 				.join("\n");
 			const instruction = `You are not done yet. Fix the following issues before stopping:\n\n${issues}\n\nDo not stop until all of the above are addressed.`;
 
-			// Try Ghostty first — real user input is most effective
-			const activeSessions = findActiveSessions();
-			const ghosttyResult = await sendInput(sessionId, result.response, activeSessions);
-			debugLog("GHOSTTY", ghosttyResult);
+			// Try input injection: pair-terminal → Ghostty → hook block fallback
+			let inputSent = false;
 
-			if (ghosttyResult.success) {
+			// 1. Try pair-terminal (native app with PTY control)
+			if (await isPairTerminalRunning()) {
+				const ptResult = await sendInputViaPairTerminal(sessionId, result.response);
+				debugLog("PAIR_TERMINAL", ptResult);
+				inputSent = ptResult.success;
+			}
+
+			// 2. Try Ghostty (System Events clipboard paste)
+			if (!inputSent) {
+				const activeSessions = findActiveSessions();
+				const ghosttyResult = await sendInputGhostty(sessionId, result.response, activeSessions);
+				debugLog("GHOSTTY", ghosttyResult);
+				inputSent = ghosttyResult.success;
+			}
+
+			if (inputSent) {
 				hookResponse = approve(`[Ghostty] Sent feedback`);
 				updateState(sessionId, {
 					...stateBase,
