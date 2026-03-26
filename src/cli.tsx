@@ -25,12 +25,11 @@ function launchPairTerminal(): ChildProcess | null {
 	}
 
 	const child = spawn(binaryPath, [], {
-		stdio: ["ignore", "pipe", "pipe"],
+		stdio: ["ignore", "ignore", "ignore"],
+		detached: true,
 	});
 
-	child.stdout?.on("data", () => {}); // drain
-	child.stderr?.on("data", () => {}); // drain
-	child.unref(); // don't keep Node alive just for this
+	child.unref();
 
 	return child;
 }
