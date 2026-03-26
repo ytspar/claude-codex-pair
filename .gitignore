@@ -3,3 +3,4 @@ dist/
 *.tsbuildinfo
 native/pair-terminal/.build/
 native/pair-terminal/.swiftpm/
+app/PairApp/.build/
