@@ -7,6 +7,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
 
+        // Set app icon
+        if let iconURL = Bundle.module.url(forResource: "AppIcon", withExtension: "icns", subdirectory: "Resources"),
+           let icon = NSImage(contentsOf: iconURL) {
+            NSApp.applicationIconImage = icon
+        }
+
         // Set up menu bar
         setupMenuBar()
 
@@ -106,7 +112,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func newSession() {
-        let cwd = FileManager.default.currentDirectoryPath
-        SessionManager.shared.createSession(cwd: cwd)
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Launch Claude"
+        panel.message = "Choose a directory for the new Claude session"
+        panel.directoryURL = URL(fileURLWithPath: FileManager.default.homeDirectoryForCurrentUser.path + "/git")
+
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                SessionManager.shared.createSession(cwd: url.path)
+            }
+        }
     }
 }

@@ -6,16 +6,29 @@ class SessionManager: ObservableObject {
     static let shared = SessionManager()
 
     @Published var sessions: [PairSession] = []
+    @Published var activeSessionId: String?
+
+    var activeSession: PairSession? {
+        if let id = activeSessionId {
+            return sessions.first { $0.id == id }
+        }
+        return sessions.first
+    }
 
     func createSession(cwd: String, id: String? = nil, command: String = "claude") {
         let sessionId = id ?? "pair-\(Int(Date().timeIntervalSince1970) % 100000)"
         let session = PairSession(id: sessionId, cwd: cwd, command: command)
         sessions.append(session)
+        activeSessionId = sessionId
     }
 
     func removeSession(_ id: String) {
         if let idx = sessions.firstIndex(where: { $0.id == id }) {
             sessions.remove(at: idx)
+            // Switch to another session
+            if activeSessionId == id {
+                activeSessionId = sessions.first?.id
+            }
         }
     }
 
@@ -45,7 +58,6 @@ class PairSession: Identifiable, ObservableObject {
     let cwd: String
     let command: String
 
-    /// The terminal view reference (set when the SwiftUI view mounts)
     weak var terminalView: LocalProcessTerminalView?
 
     init(id: String, cwd: String, command: String) {
@@ -54,7 +66,6 @@ class PairSession: Identifiable, ObservableObject {
         self.command = command
     }
 
-    /// Start Claude in the given terminal view.
     func start(in view: LocalProcessTerminalView) {
         self.terminalView = view
 
@@ -73,13 +84,11 @@ class PairSession: Identifiable, ObservableObject {
         )
     }
 
-    /// Inject input into the terminal (for Codex feedback).
     func injectInput(_ text: String) {
         terminalView?.send(txt: text)
     }
 }
 
-/// Codex review state for a session.
 struct CodexState {
     var cycle: Int = 0
     var status: String = "idle"
