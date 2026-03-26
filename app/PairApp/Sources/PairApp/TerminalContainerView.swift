@@ -5,6 +5,7 @@ import SwiftTerm
 /// Uses Ghostty config colors if available, devbar palette as fallback.
 struct TerminalContainerView: NSViewRepresentable {
     @ObservedObject var session: PairSession
+    @ObservedObject var themeManager = ThemeManager.shared
 
     func makeNSView(context: Context) -> LocalProcessTerminalView {
         let termView = LocalProcessTerminalView(frame: .zero)
@@ -19,23 +20,25 @@ struct TerminalContainerView: NSViewRepresentable {
         return termView
     }
 
-    func updateNSView(_ nsView: LocalProcessTerminalView, context: Context) {}
+    func updateNSView(_ nsView: LocalProcessTerminalView, context: Context) {
+        // Re-apply theme when ThemeManager changes
+        applyTheme(to: nsView)
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(session: session)
     }
 
     private func applyTheme(to termView: LocalProcessTerminalView) {
-        let ghosttyConfig = GhosttyConfig.load()
+        let useGhostty = themeManager.mode == .ghostty
+        let ghosttyConfig = useGhostty ? GhosttyConfig.load() : nil
 
-        // Background / foreground
-        if ghosttyConfig.hasCustomColors {
-            // Use Ghostty config colors
-            termView.nativeBackgroundColor = ghosttyConfig.background ?? GhosttyConfig.devbarBackground
-            termView.nativeForegroundColor = ghosttyConfig.foreground ?? GhosttyConfig.devbarForeground
-            termView.caretColor = ghosttyConfig.cursorColor ?? GhosttyConfig.devbarCursor
+        // Background / foreground — synced with ThemeManager
+        if useGhostty, let config = ghosttyConfig, config.hasCustomColors {
+            termView.nativeBackgroundColor = config.background ?? GhosttyConfig.devbarBackground
+            termView.nativeForegroundColor = config.foreground ?? GhosttyConfig.devbarForeground
+            termView.caretColor = config.cursorColor ?? GhosttyConfig.devbarCursor
         } else {
-            // Pure devbar theme
             termView.nativeBackgroundColor = GhosttyConfig.devbarBackground
             termView.nativeForegroundColor = GhosttyConfig.devbarForeground
             termView.caretColor = GhosttyConfig.devbarCursor
@@ -46,7 +49,7 @@ struct TerminalContainerView: NSViewRepresentable {
 
         for i in 0..<16 {
             let hex: String
-            if let ghosttyColor = ghosttyConfig.palette[i] {
+            if useGhostty, let ghosttyColor = ghosttyConfig?.palette[i] {
                 hex = ghosttyColor.hexString
             } else if let devbarHex = GhosttyConfig.devbarPalette[i] {
                 hex = devbarHex
@@ -61,8 +64,8 @@ struct TerminalContainerView: NSViewRepresentable {
         }
 
         // Set fg/bg via OSC 10/11
-        let fg = (ghosttyConfig.foreground ?? GhosttyConfig.devbarForeground).hexString
-        let bg = (ghosttyConfig.background ?? GhosttyConfig.devbarBackground).hexString
+        let fg = (useGhostty ? ghosttyConfig?.foreground ?? GhosttyConfig.devbarForeground : GhosttyConfig.devbarForeground).hexString
+        let bg = (useGhostty ? ghosttyConfig?.background ?? GhosttyConfig.devbarBackground : GhosttyConfig.devbarBackground).hexString
         osc += "\u{1B}]10;rgb:\(fg.prefix(2))/\(fg.dropFirst(2).prefix(2))/\(fg.dropFirst(4).prefix(2))\u{07}"
         osc += "\u{1B}]11;rgb:\(bg.prefix(2))/\(bg.dropFirst(2).prefix(2))/\(bg.dropFirst(4).prefix(2))\u{07}"
 
