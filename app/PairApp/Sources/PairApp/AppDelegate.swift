@@ -5,9 +5,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var mainWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Must set activation policy BEFORE creating windows
         NSApp.setActivationPolicy(.regular)
 
+        // Set up menu bar
+        setupMenuBar()
+
+        // Create window
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
             styleMask: [.titled, .closable, .resizable, .miniaturizable],
@@ -17,42 +20,93 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.title = "Pair — Claude + Codex"
         window.center()
         window.isReleasedWhenClosed = false
-        window.level = .normal
-        window.backgroundColor = NSColor(red: 0.039, green: 0.059, blue: 0.102, alpha: 1.0)  // Theme.bg
+        window.backgroundColor = NSColor(red: 0.039, green: 0.059, blue: 0.102, alpha: 1.0)
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .visible
         window.styleMask.insert(.fullSizeContentView)
-        window.toolbar = NSToolbar()
-        window.toolbarStyle = .unified
 
         let contentView = PairWindowView()
         window.contentView = NSHostingView(rootView: contentView)
 
-        // Force window to front
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
-
         self.mainWindow = window
 
-        // Activate the app and bring to front
         NSApp.activate(ignoringOtherApps: true)
 
-        // Double-ensure visibility after a brief delay (handles race with terminal focus)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         }
 
-        // Start IPC server
         IPCServer.shared.start()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        return false  // Keep running even if window closes (for debugging)
+        return true
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         IPCServer.shared.stop()
         SessionManager.shared.stopAll()
+    }
+
+    private func setupMenuBar() {
+        let mainMenu = NSMenu()
+
+        // App menu
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "About Pair", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(withTitle: "Quit Pair", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+
+        let appMenuItem = NSMenuItem()
+        appMenuItem.submenu = appMenu
+        mainMenu.addItem(appMenuItem)
+
+        // File menu
+        let fileMenu = NSMenu(title: "File")
+        fileMenu.addItem(withTitle: "New Session", action: #selector(newSession), keyEquivalent: "n")
+        fileMenu.addItem(NSMenuItem.separator())
+        fileMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+
+        let fileMenuItem = NSMenuItem()
+        fileMenuItem.submenu = fileMenu
+        mainMenu.addItem(fileMenuItem)
+
+        // Edit menu (for copy/paste in terminal)
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+
+        let editMenuItem = NSMenuItem()
+        editMenuItem.submenu = editMenu
+        mainMenu.addItem(editMenuItem)
+
+        // View menu
+        let viewMenu = NSMenu(title: "View")
+        viewMenu.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+
+        let viewMenuItem = NSMenuItem()
+        viewMenuItem.submenu = viewMenu
+        mainMenu.addItem(viewMenuItem)
+
+        // Window menu
+        let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+
+        let windowMenuItem = NSMenuItem()
+        windowMenuItem.submenu = windowMenu
+        mainMenu.addItem(windowMenuItem)
+
+        NSApp.mainMenu = mainMenu
+        NSApp.windowsMenu = windowMenu
+    }
+
+    @objc func newSession() {
+        let cwd = FileManager.default.currentDirectoryPath
+        SessionManager.shared.createSession(cwd: cwd)
     }
 }
