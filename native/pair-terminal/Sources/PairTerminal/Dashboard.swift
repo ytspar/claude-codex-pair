@@ -6,7 +6,6 @@ import Foundation
 /// - Left margin/right margin (DECSLRM) to confine Claude's output to the left pane
 /// - Direct cursor positioning to render the Codex panel on the right
 class Dashboard {
-    private let codexPanelWidth = 40
     private var termRows: Int = 50
     private var termCols: Int = 120
     private var lastStatus: CodexStatus = CodexStatus()
@@ -22,7 +21,10 @@ class Dashboard {
         var task: String = ""
     }
 
-    /// Claude gets the left portion of the terminal.
+    /// Codex panel is 40% of terminal width.
+    private var codexPanelWidth: Int { max(30, Int(Double(termCols) * 0.4)) }
+
+    /// Claude gets the left 60%.
     var claudeCols: Int { max(40, termCols - codexPanelWidth - 1) }
 
     /// Full terminal height for Claude.
