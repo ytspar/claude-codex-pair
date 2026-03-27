@@ -17,25 +17,28 @@ struct ScratchpadView: View {
                 Rectangle().fill(themeManager.border).frame(height: 1)
             }
 
-            // Text editor with aligned placeholder
+            // Terminal-style text editor with Ctrl+W, Ctrl+A/E, Ctrl+K/U
             ZStack(alignment: .topLeading) {
-                TextEditor(text: $text)
-                    .font(Theme.mono)
-                    .foregroundColor(themeManager.text)
-                    .scrollContentBackground(.hidden)
-                    .background(Color.clear)
-                    .frame(minHeight: 70, maxHeight: 130)
+                TerminalTextView(
+                    text: $text,
+                    font: NSFont(name: Theme.fontName, size: 14) ?? .monospacedSystemFont(ofSize: 14, weight: .regular),
+                    textColor: NSColor(themeManager.text),
+                    cursorColor: NSColor(themeManager.accent),
+                    onEscape: { text = "" },
+                    onCommandReturn: { sendToClaudeAction() }
+                )
+                .frame(minHeight: 70, maxHeight: 130)
 
                 if text.isEmpty {
                     Text("Draft a prompt for Claude")
                         .font(Theme.mono)
                         .foregroundColor(themeManager.textMuted)
-                        .offset(x: 5, y: 0)
+                        .offset(x: 8, y: 4)
                         .allowsHitTesting(false)
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.top, 12)
+            .padding(.horizontal, 6)
+            .padding(.top, 10)
 
             // Actions
             HStack(spacing: 8) {
@@ -61,13 +64,6 @@ struct ScratchpadView: View {
             .padding(.bottom, 8)
         }
         .background(themeManager.bg)
-        .onExitCommand { text = "" }  // Esc to clear
-        .background(
-            // Cmd+Enter to send
-            Button("") { sendToClaudeAction() }
-                .keyboardShortcut(.return, modifiers: .command)
-                .hidden()
-        )
     }
 
     private func sendToClaudeAction() {
