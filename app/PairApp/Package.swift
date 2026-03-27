@@ -7,6 +7,10 @@ let package = Package(
     name: "PairApp",
     platforms: [.macOS(.v14)],
     targets: [
+        .testTarget(
+            name: "PairAppTests",
+            path: "Tests/PairAppTests"
+        ),
         .executableTarget(
             name: "PairApp",
             path: "Sources/PairApp",

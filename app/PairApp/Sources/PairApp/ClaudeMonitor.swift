@@ -166,7 +166,7 @@ class ClaudeMonitor: ObservableObject {
         let stdout = Pipe()
         let stderr = Pipe()
         process.executableURL = URL(fileURLWithPath: codexPath)
-        process.arguments = ["exec", "-s", "read-only", prompt]
+        process.arguments = ["exec", "--json", "-s", "read-only", prompt]
         process.currentDirectoryURL = URL(fileURLWithPath: cwd)
         process.standardOutput = stdout
         process.standardError = stderr
@@ -176,34 +176,23 @@ class ClaudeMonitor: ObservableObject {
             try process.run()
             process.waitUntilExit()
             let data = stdout.fileHandleForReading.readDataToEndOfFile()
-            let raw = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let raw = String(data: data, encoding: .utf8) ?? ""
 
-            // codex exec outputs the response text directly on stdout
-            // stderr has the metadata (session info, token count, etc.)
-            // Just return stdout, cleaned up
-            let cleaned = raw
-                .split(separator: "\n")
-                .filter { line in
-                    let l = line.trimmingCharacters(in: .whitespaces)
-                    // Skip empty lines and codex metadata
-                    return !l.isEmpty
-                        && !l.hasPrefix("OpenAI Codex")
-                        && !l.hasPrefix("workdir:")
-                        && !l.hasPrefix("model:")
-                        && !l.hasPrefix("provider:")
-                        && !l.hasPrefix("approval:")
-                        && !l.hasPrefix("sandbox:")
-                        && !l.hasPrefix("reasoning")
-                        && !l.hasPrefix("session id:")
-                        && !l.hasPrefix("tokens used")
-                        && !l.hasPrefix("--------")
-                        && !l.hasPrefix("user")
-                        && !l.hasPrefix("mcp startup:")
-                        && !l.hasPrefix("codex")
+            // --json outputs JSONL events. Extract text from item.completed events.
+            var responseText = ""
+            for line in raw.split(separator: "\n") {
+                guard let lineData = line.data(using: .utf8),
+                      let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                      let type = json["type"] as? String else { continue }
+
+                if type == "item.completed",
+                   let item = json["item"] as? [String: Any],
+                   let text = item["text"] as? String {
+                    responseText = text
                 }
-                .joined(separator: "\n")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
 
+            let cleaned = responseText.trimmingCharacters(in: .whitespacesAndNewlines)
             return cleaned.isEmpty ? nil : cleaned
         } catch {
             PairLog.error("Codex exec failed: \(error)")
