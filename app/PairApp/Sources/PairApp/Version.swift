@@ -1,9 +1,9 @@
 import Foundation
 
 /// Single source of truth for version info.
-/// Update this file when cutting a release.
+/// Updated by scripts/release.sh
 enum AppVersion {
-    static let version = "0.1.0"
+    static let version = "0.1.1"
     static let buildDate = "2026-03-26"
 
     static var displayString: String {
