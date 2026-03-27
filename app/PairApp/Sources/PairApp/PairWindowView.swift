@@ -7,6 +7,7 @@ struct PairWindowView: View {
     @State private var isDragging = false
     @GestureState private var dragOffset: CGFloat = 0
     @State private var authChecked = false
+    @State private var showProjectPicker = false
 
     var body: some View {
         ZStack {
@@ -36,18 +37,21 @@ struct PairWindowView: View {
             HStack(spacing: 0) {
                 // Left: Terminal
                 VStack(spacing: 0) {
-                    if sessionManager.sessions.count > 1 {
-                        SessionTabBar(
+                    // Toolbar — always visible when sessions exist
+                    if !sessionManager.sessions.isEmpty {
+                        SessionToolbar(
                             sessions: sessionManager.sessions,
-                            selectedId: sessionManager.activeSessionId,
+                            activeId: sessionManager.activeSessionId,
                             onSelect: { sessionManager.activeSessionId = $0 },
-                            onClose: { sessionManager.removeSession($0) }
+                            onClose: { sessionManager.removeSession($0) },
+                            onNew: { showProjectPicker = true }
                         )
                     }
 
-                    if sessionManager.sessions.isEmpty {
+                    if sessionManager.sessions.isEmpty || showProjectPicker {
                         ProjectPickerView { path in
                             sessionManager.createSession(cwd: path)
+                            showProjectPicker = false
                         }
                     } else if let active = sessionManager.activeSession {
                         TerminalContainerView(session: active)
@@ -104,79 +108,6 @@ struct PairWindowView: View {
         .coordinateSpace(name: "window")
         .background(themeManager.bg)
         .background(SessionShortcutButtons(sessionManager: sessionManager))
-    }
-}
-
-// MARK: - Tab bar
-
-struct SessionTabBar: View {
-    @ObservedObject private var themeManager = ThemeManager.shared
-    let sessions: [PairSession]
-    let selectedId: String?
-    let onSelect: (String) -> Void
-    let onClose: (String) -> Void
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 0) {
-                ForEach(sessions) { session in
-                    SessionTab(
-                        session: session,
-                        isSelected: session.id == selectedId,
-                        onSelect: { onSelect(session.id) },
-                        onClose: { onClose(session.id) }
-                    )
-                }
-            }
-        }
-        .frame(height: 36)
-        .background(themeManager.bg)
-        .overlay(
-            Rectangle().fill(themeManager.border).frame(height: 1),
-            alignment: .bottom
-        )
-    }
-}
-
-struct SessionTab: View {
-    @ObservedObject private var themeManager = ThemeManager.shared
-    let session: PairSession
-    let isSelected: Bool
-    let onSelect: () -> Void
-    let onClose: () -> Void
-
-    private var projectName: String {
-        String(session.cwd.split(separator: "/").last ?? "session")
-    }
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(themeManager.accent)
-                .frame(width: 7, height: 7)
-            Text(projectName)
-                .font(.system(size: 13, weight: .medium, design: .monospaced))
-                .foregroundColor(isSelected ? themeManager.text : themeManager.textSecondary)
-                .lineLimit(1)
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundColor(themeManager.textMuted)
-            }
-            .buttonStyle(.plain)
-            .opacity(isSelected ? 1 : 0)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(isSelected ? themeManager.bgElevated : Color.clear)
-        .overlay(
-            Rectangle()
-                .fill(isSelected ? themeManager.accent : Color.clear)
-                .frame(height: 2),
-            alignment: .bottom
-        )
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onSelect)
     }
 }
 
