@@ -17,25 +17,29 @@ struct ScratchpadView: View {
                 Rectangle().fill(themeManager.border).frame(height: 1)
             }
 
-            // Text editor — placeholder must match TextEditor's internal insets
+            // Text editor with aligned placeholder
             ZStack(alignment: .topLeading) {
+                // TextEditor is the base layer — controls cursor position
                 TextEditor(text: $text)
                     .font(Theme.mono)
                     .foregroundColor(themeManager.text)
                     .scrollContentBackground(.hidden)
                     .background(Color.clear)
+                    .padding(.leading, 2)
                     .frame(minHeight: 70, maxHeight: 130)
 
+                // Placeholder sits exactly where the cursor/text renders
+                // TextEditor has ~5px internal horizontal inset + 8px vertical
                 if text.isEmpty {
                     Text("Draft a prompt for Claude")
                         .font(Theme.mono)
                         .foregroundColor(themeManager.textMuted)
-                        .padding(.top, 8)    // Match TextEditor's internal top inset
-                        .padding(.leading, 6) // Match TextEditor's internal left inset
+                        .padding(.top, 8)
+                        .padding(.leading, 7)
                         .allowsHitTesting(false)
                 }
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 8)
             .padding(.top, 4)
 
             // Actions
