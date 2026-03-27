@@ -6,8 +6,23 @@ struct PairWindowView: View {
     @State private var codexFraction: CGFloat = 0.35
     @State private var isDragging = false
     @GestureState private var dragOffset: CGFloat = 0
+    @State private var authChecked = false
 
     var body: some View {
+        if !authChecked && sessionManager.sessions.isEmpty {
+            // Show auth check on first launch
+            ZStack {
+                themeManager.bg
+                AuthStatusView {
+                    authChecked = true
+                }
+            }
+        } else {
+            mainView
+        }
+    }
+
+    var mainView: some View {
         GeometryReader { geo in
             let dividerX = geo.size.width * (1 - codexFraction) + dragOffset
             let clampedX = min(max(200, dividerX), geo.size.width - 200)
