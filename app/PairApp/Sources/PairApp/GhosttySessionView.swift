@@ -1,4 +1,3 @@
-#if USE_GHOSTTY
 import SwiftUI
 import GhosttyKit
 
@@ -45,4 +44,3 @@ struct GhosttySessionView: NSViewRepresentable {
         }
     }
 }
-#endif

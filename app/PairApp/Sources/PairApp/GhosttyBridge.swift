@@ -4,7 +4,6 @@
 //
 // Only compiled when USE_GHOSTTY is defined (see Package.swift).
 
-#if USE_GHOSTTY
 import AppKit
 import GhosttyKit
 
@@ -191,4 +190,3 @@ enum GhosttyBridgeHelpers {
     }
 }
 
-#endif // USE_GHOSTTY

@@ -1,7 +1,6 @@
 import Foundation
-import SwiftTerm
+import GhosttyKit
 
-/// Manages all Claude terminal sessions.
 class SessionManager: ObservableObject {
     static let shared = SessionManager()
 
@@ -31,7 +30,6 @@ class SessionManager: ObservableObject {
     func removeSession(_ id: String) {
         if let idx = sessions.firstIndex(where: { $0.id == id }) {
             sessions.remove(at: idx)
-            // Switch to another session
             if activeSessionId == id {
                 activeSessionId = sessions.first?.id
             }
@@ -58,16 +56,12 @@ class SessionManager: ObservableObject {
     }
 }
 
-/// A single Claude + Codex pairing session.
 class PairSession: Identifiable, ObservableObject {
     let id: String
     let cwd: String
     let command: String
 
-    weak var terminalView: LocalProcessTerminalView?
-    #if USE_GHOSTTY
     weak var ghosttyView: GhosttyTerminalView?
-    #endif
     var currentDirectory: String
 
     init(id: String, cwd: String, command: String) {
@@ -77,30 +71,8 @@ class PairSession: Identifiable, ObservableObject {
         self.command = command
     }
 
-    func start(in view: LocalProcessTerminalView) {
-        self.terminalView = view
-
-        // Use shell integration for proper env injection (ZDOTDIR trick)
-        let env = ShellIntegration.shared.environment(sessionId: id, cwd: cwd)
-        let envArray = env.map { "\($0.key)=\($0.value)" }
-
-        view.startProcess(
-            executable: "/usr/bin/env",
-            args: ["claude"],
-            environment: envArray,
-            execName: "claude",
-            currentDirectory: cwd
-        )
-    }
-
     func injectInput(_ text: String) {
-        #if USE_GHOSTTY
-        if let ghostty = ghosttyView {
-            ghostty.sendText(text)
-            return
-        }
-        #endif
-        terminalView?.send(txt: text)
+        ghosttyView?.sendText(text)
     }
 }
 

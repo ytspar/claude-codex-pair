@@ -54,15 +54,9 @@ struct PairWindowView: View {
                         // Keep ALL terminal views alive — hide inactive ones
                         // This prevents crashes when switching tabs
                         ForEach(sessionManager.sessions) { session in
-                            #if USE_GHOSTTY
                             GhosttySessionView(session: session)
                                 .opacity(session.id == sessionManager.activeSessionId ? 1 : 0)
                                 .allowsHitTesting(session.id == sessionManager.activeSessionId)
-                            #else
-                            TerminalContainerView(session: session)
-                                .opacity(session.id == sessionManager.activeSessionId ? 1 : 0)
-                                .allowsHitTesting(session.id == sessionManager.activeSessionId)
-                            #endif
                         }
 
                         // Project picker overlay

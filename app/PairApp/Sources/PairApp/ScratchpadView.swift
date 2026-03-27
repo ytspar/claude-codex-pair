@@ -1,8 +1,6 @@
 import SwiftUI
+import GhosttyKit
 
-/// Scratchpad for drafting Claude prompts without accidentally sending them.
-/// Users can type multi-line text, press Enter for new lines, then click
-/// "Send to Claude" to inject it into the active session.
 struct ScratchpadView: View {
     @ObservedObject private var themeManager = ThemeManager.shared
     @State private var text = ""
@@ -23,18 +21,19 @@ struct ScratchpadView: View {
             ZStack(alignment: .topLeading) {
                 if text.isEmpty {
                     Text("Draft a prompt for Claude...")
-                        .font(Theme.monoSmall)
+                        .font(Theme.mono)
                         .foregroundColor(themeManager.textMuted)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 8)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 10)
                 }
 
                 TextEditor(text: $text)
-                    .font(Theme.monoSmall)
+                    .font(Theme.mono)
                     .foregroundColor(themeManager.text)
                     .scrollContentBackground(.hidden)
                     .background(Color.clear)
-                    .frame(minHeight: 60, maxHeight: 120)
+                    .padding(.horizontal, 2)
+                    .frame(minHeight: 70, maxHeight: 130)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -46,7 +45,7 @@ struct ScratchpadView: View {
                 if !text.isEmpty {
                     Button(action: { text = "" }) {
                         Text("Clear")
-                            .font(Theme.monoTiny)
+                            .font(Theme.monoSmall)
                             .foregroundColor(themeManager.textMuted)
                     }
                     .buttonStyle(.plain)
@@ -55,13 +54,13 @@ struct ScratchpadView: View {
                 Button(action: sendToClaudeAction) {
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.right.circle")
-                            .font(.system(size: 11))
+                            .font(.system(size: 12))
                         Text("Send to Claude")
-                            .font(Theme.monoTiny)
+                            .font(Theme.monoSmall)
                     }
                     .foregroundColor(text.isEmpty ? themeManager.textMuted : themeManager.accent)
                     .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 5)
                     .overlay(
                         RoundedRectangle(cornerRadius: 4)
                             .strokeBorder(text.isEmpty ? themeManager.border : themeManager.accent, lineWidth: 1)
@@ -81,21 +80,15 @@ struct ScratchpadView: View {
         let prompt = text
         text = ""
 
-        // Send to the active session
         if let session = SessionManager.shared.activeSession {
             session.injectInput(prompt)
             PairLog.info("Scratchpad sent \(prompt.count) chars to \(session.id)")
 
             // Move focus to the terminal
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                if let termView = session.terminalView {
-                    termView.window?.makeFirstResponder(termView)
-                }
-                #if USE_GHOSTTY
                 if let ghosttyView = session.ghosttyView {
                     ghosttyView.window?.makeFirstResponder(ghosttyView)
                 }
-                #endif
             }
         }
     }

@@ -3,7 +3,6 @@
 //
 // Only compiled when USE_GHOSTTY is defined (see Package.swift).
 
-#if USE_GHOSTTY
 import AppKit
 import Metal
 import QuartzCore
@@ -351,8 +350,20 @@ final class GhosttyTerminalView: NSView {
     // Public API
     // -----------------------------------------------------------------------
 
-    /// Send text input to the terminal (e.g. from paste or IPC).
+    /// Send text as simulated typing, one character at a time.
+    /// Avoids ghostty_surface_text's bracketed paste which puts Claude in paste mode.
     func sendText(_ text: String) {
+        guard let surface else { return }
+        for char in text {
+            let s = String(char)
+            s.withCString { ptr in
+                ghostty_surface_text(surface, ptr, UInt(s.utf8.count))
+            }
+        }
+    }
+
+    /// Send text as paste (with bracketed paste markers). Use for actual Cmd+V paste.
+    func sendPaste(_ text: String) {
         guard let surface else { return }
         text.withCString { ptr in
             ghostty_surface_text(surface, ptr, UInt(text.utf8.count))
@@ -394,4 +405,3 @@ struct GhosttyTerminalContainerView: NSViewRepresentable {
     }
 }
 
-#endif // USE_GHOSTTY
