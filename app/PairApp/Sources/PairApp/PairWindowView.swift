@@ -48,14 +48,22 @@ struct PairWindowView: View {
                         )
                     }
 
-                    if sessionManager.sessions.isEmpty || showProjectPicker {
-                        ProjectPickerView { path in
-                            sessionManager.createSession(cwd: path)
-                            showProjectPicker = false
+                    ZStack {
+                        // Keep ALL terminal views alive — hide inactive ones
+                        // This prevents crashes when switching tabs
+                        ForEach(sessionManager.sessions) { session in
+                            TerminalContainerView(session: session)
+                                .opacity(session.id == sessionManager.activeSessionId ? 1 : 0)
+                                .allowsHitTesting(session.id == sessionManager.activeSessionId)
                         }
-                    } else if let active = sessionManager.activeSession {
-                        TerminalContainerView(session: active)
-                            .id(active.id)
+
+                        // Project picker overlay
+                        if sessionManager.sessions.isEmpty || showProjectPicker {
+                            ProjectPickerView { path in
+                                sessionManager.createSession(cwd: path)
+                                showProjectPicker = false
+                            }
+                        }
                     }
                 }
                 .frame(width: leftWidth)
