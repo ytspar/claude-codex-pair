@@ -77,7 +77,7 @@ struct ToolbarTab: View {
             HStack(spacing: 6) {
                 if let icon = icon {
                     Image(systemName: icon)
-                        .font(.system(size: 11))
+                        .font(Theme.monoTiny)
                         .foregroundColor(themeManager.accent)
                 } else {
                     Circle()
@@ -94,7 +94,7 @@ struct ToolbarTab: View {
 
             if isActive || isHovered {
                 Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.custom(Theme.fontName, size: 8))
                     .foregroundColor(themeManager.textMuted)
                     .frame(width: 16, height: 16)
                     .contentShape(Rectangle())
@@ -125,7 +125,7 @@ struct ToolbarButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 11, weight: .medium))
+                .font(Theme.monoTiny)
                 .foregroundColor(isHovered ? themeManager.text : themeManager.textMuted)
                 .frame(width: 26, height: 26)
                 .background(isHovered ? themeManager.accent.opacity(0.15) : Color.clear)

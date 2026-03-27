@@ -58,7 +58,7 @@ struct ScratchpadView: View {
                 Button(action: sendToClaudeAction) {
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.right.circle")
-                            .font(.system(size: 12))
+                            .font(Theme.monoSmall)
                         Text("Send to Claude")
                             .font(Theme.monoSmall)
                     }

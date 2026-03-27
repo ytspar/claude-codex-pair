@@ -11,11 +11,11 @@ struct AuthStatusView: View {
     var body: some View {
         VStack(spacing: 24) {
             Image(systemName: "checkmark.shield")
-                .font(.system(size: 48))
+                .font(.custom(Theme.fontName, size: 48))
                 .foregroundColor(themeManager.accent)
 
             Text("Checking Authentication")
-                .font(.system(size: 20, weight: .medium, design: .monospaced))
+                .font(.custom(Theme.fontName, size: 20))
                 .foregroundColor(themeManager.text)
 
             if isChecking {
@@ -49,10 +49,10 @@ struct AuthStatusView: View {
                         ForEach(status.issues, id: \.self) { issue in
                             HStack(alignment: .top, spacing: 8) {
                                 Image(systemName: "exclamationmark.triangle")
-                                    .font(.system(size: 11))
+                                    .font(Theme.monoTiny)
                                     .foregroundColor(themeManager.warning)
                                 Text(issue)
-                                    .font(.system(size: 12, design: .monospaced))
+                                    .font(Theme.monoSmall)
                                     .foregroundColor(themeManager.warning)
                             }
                         }
@@ -63,7 +63,7 @@ struct AuthStatusView: View {
                         checkAuth()
                     }
                     .buttonStyle(.plain)
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .font(Theme.monoSmall)
                     .foregroundColor(themeManager.accent)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
@@ -76,7 +76,7 @@ struct AuthStatusView: View {
                         onReady()
                     }
                     .buttonStyle(.plain)
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(Theme.monoSmall)
                     .foregroundColor(themeManager.textMuted)
                 }
             }
@@ -113,20 +113,20 @@ struct AuthRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: installed && authenticated ? "checkmark.circle.fill" : installed ? "exclamationmark.circle" : "xmark.circle")
-                .font(.system(size: 16))
+                .font(.custom(Theme.fontName, size: 16))
                 .foregroundColor(installed && authenticated ? themeManager.accent : installed ? themeManager.warning : themeManager.error)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(name)
-                    .font(.system(size: 14, weight: .medium, design: .monospaced))
+                    .font(Theme.mono)
                     .foregroundColor(themeManager.text)
                 HStack(spacing: 6) {
                     Text(detail)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(Theme.monoTiny)
                         .foregroundColor(themeManager.textMuted)
                     if let method = authMethod {
                         Text("(\(method))")
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(Theme.monoTiny)
                             .foregroundColor(themeManager.textSecondary)
                     }
                 }

@@ -88,7 +88,7 @@ struct PairWindowView: View {
 
                     // Drag grip icon centered
                     Image(systemName: "line.3.horizontal")
-                        .font(.system(size: 7))
+                        .font(.custom(Theme.fontName, size: 7))
                         .foregroundColor(themeManager.textMuted.opacity(isDragging ? 1 : 0.6))
                         .rotationEffect(.degrees(90))
                 }
@@ -132,13 +132,13 @@ struct EmptyTerminalView: View {
     var body: some View {
         VStack(spacing: 24) {
             Image(systemName: "terminal")
-                .font(.system(size: 56))
+                .font(.custom(Theme.fontName, size: 56))
                 .foregroundColor(themeManager.textMuted)
             Text("Choose a project directory")
-                .font(.system(size: 22, weight: .medium, design: .monospaced))
+                .font(.custom(Theme.fontName, size: 22))
                 .foregroundColor(themeManager.textSecondary)
             Text("Claude Code will launch in the selected directory")
-                .font(.system(size: 13, design: .monospaced))
+                .font(Theme.monoSmall)
                 .foregroundColor(themeManager.textMuted)
 
             Button(action: { onNewSession?() }) {
@@ -146,7 +146,7 @@ struct EmptyTerminalView: View {
                     Image(systemName: "folder")
                     Text("Open Directory")
                 }
-                .font(.system(size: 14, weight: .medium, design: .monospaced))
+                .font(Theme.mono)
                 .foregroundColor(themeManager.accent)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 10)
@@ -163,14 +163,14 @@ struct EmptyTerminalView: View {
 
             HStack(spacing: 6) {
                 Text("⌘N")
-                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .font(Theme.monoSmall)
                     .foregroundColor(themeManager.textSecondary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background(themeManager.bgCard)
                     .cornerRadius(3)
                 Text("to open later")
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(Theme.monoSmall)
                     .foregroundColor(themeManager.textMuted)
             }
         }
