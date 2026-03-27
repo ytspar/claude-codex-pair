@@ -39,7 +39,7 @@ struct ProjectPickerView: View {
                     .foregroundColor(themeManager.textMuted)
                 TextField("Search projects...", text: $searchText)
                     .textFieldStyle(.plain)
-                    .font(Theme.monoSmall)
+                    .font(Theme.mono)
                     .foregroundColor(themeManager.text)
             }
             .padding(.horizontal, 12)
