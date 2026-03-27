@@ -41,13 +41,8 @@ struct SessionToolbar: View {
             }
             .padding(.trailing, 8)
         }
-        .frame(height: 40)
-        .padding(.bottom, 4)
+        .frame(height: 34)
         .background(themeManager.bg)
-        .overlay(
-            Rectangle().fill(themeManager.border).frame(height: 1),
-            alignment: .bottom
-        )
     }
 }
 
