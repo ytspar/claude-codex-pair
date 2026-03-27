@@ -1,132 +1,134 @@
 import Foundation
 import GhosttyKit
 
-/// Monitors Claude's terminal output to detect when it pauses.
-/// When Claude stops (shows prompt, finishes response), triggers Codex review.
-///
-/// This replaces the hook-based approach — PairApp watches the terminal
-/// directly since it owns the PTY.
+/// Monitors Claude's terminal by polling screen content every second.
+/// When the screen stops changing for a few seconds, triggers Codex review.
 class ClaudeMonitor: ObservableObject {
     static let shared = ClaudeMonitor()
 
     @Published var isClaudeActive = false
-    @Published var lastActivity: Date = Date()
+    @Published var status: String = "idle"  // idle, watching, reviewing
 
-    private var activityTimer: Timer?
-    private var idleThreshold: TimeInterval = 3.0  // seconds of no output = idle
+    private var pollTimer: Timer?
+    private var lastScreenHash: Int = 0
+    private var stableCount = 0          // how many polls the screen hasn't changed
+    private let stableThreshold = 5      // 5 polls (5 seconds) of no change = idle
+    private var reviewInProgress = false
 
     func start() {
-        // Poll every second to check for activity
-        activityTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.checkActivity()
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.poll()
         }
-        PairLog.info("ClaudeMonitor started")
+        PairLog.info("ClaudeMonitor started (polling every 1s)")
     }
 
     func stop() {
-        activityTimer?.invalidate()
-        activityTimer = nil
+        pollTimer?.invalidate()
+        pollTimer = nil
     }
 
-    /// Called when terminal output is received (from Ghostty surface callback).
-    func recordActivity() {
-        let wasActive = isClaudeActive
-        DispatchQueue.main.async { [weak self] in
-            self?.lastActivity = Date()
-            if !wasActive {
-                self?.isClaudeActive = true
-                PairLog.info("Claude became active")
+    private func poll() {
+        guard let session = SessionManager.shared.activeSession,
+              let surface = session.ghosttyView?.surface else {
+            if isClaudeActive {
+                DispatchQueue.main.async {
+                    self.isClaudeActive = false
+                    self.status = SessionManager.shared.sessions.isEmpty ? "idle" : "watching"
+                }
+            }
+            return
+        }
+
+        // Read current screen content
+        let screenText = readScreen(surface: surface)
+        let currentHash = screenText.hashValue
+
+        if currentHash != lastScreenHash {
+            // Screen changed — Claude is active
+            lastScreenHash = currentHash
+            stableCount = 0
+            if !isClaudeActive {
+                DispatchQueue.main.async {
+                    self.isClaudeActive = true
+                    self.status = "watching"
+                }
+            }
+        } else {
+            // Screen unchanged
+            stableCount += 1
+
+            if stableCount == stableThreshold && isClaudeActive && !reviewInProgress {
+                // Claude stopped producing output — trigger review
+                DispatchQueue.main.async {
+                    self.isClaudeActive = false
+                    self.status = "reviewing"
+                }
+                PairLog.info("Claude idle for \(stableThreshold)s, triggering Codex review")
+                triggerCodexReview(screenText: screenText, session: session)
             }
         }
     }
 
-    private var reviewInProgress = false
+    private func readScreen(surface: ghostty_surface_t) -> String {
+        var text = ghostty_text_s()
+        let sel = ghostty_selection_s()
+        var result = ""
 
-    private func checkActivity() {
-        let idle = Date().timeIntervalSince(lastActivity)
-
-        if isClaudeActive && idle > idleThreshold {
-            DispatchQueue.main.async {
-                self.isClaudeActive = false
+        if ghostty_surface_read_text(surface, sel, &text) {
+            if let ptr = text.text, text.text_len > 0 {
+                result = String(cString: ptr)
             }
-            PairLog.info("Claude went idle after \(String(format: "%.1f", idle))s")
-
-            // Trigger Codex review when Claude stops
-            if !reviewInProgress {
-                triggerCodexReview()
-            }
+            ghostty_surface_free_text(surface, &text)
         }
+
+        return result
     }
 
-    /// Call Codex to review Claude's work or answer its question.
-    private func triggerCodexReview() {
-        guard let session = SessionManager.shared.activeSession else { return }
-
+    private func triggerCodexReview(screenText: String, session: PairSession) {
         reviewInProgress = true
-        PairLog.info("Triggering Codex review for session \(session.id)")
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            // Read the terminal screen to see what Claude said
-            var screenText = ""
-            let semaphore = DispatchSemaphore(value: 0)
-            DispatchQueue.main.async {
-                if let surface = session.ghosttyView?.surface {
-                    var text = ghostty_text_s()
-                    let sel = ghostty_selection_s()
-                    if ghostty_surface_read_text(surface, sel, &text) {
-                        if let ptr = text.text, text.text_len > 0 {
-                            screenText = String(cString: ptr)
-                        }
-                        ghostty_surface_free_text(surface, &text)
-                    }
-                }
-                semaphore.signal()
-            }
-            semaphore.wait()
-
-            guard !screenText.isEmpty else {
-                self?.reviewInProgress = false
-                return
-            }
-
-            // Call Codex via the CLI
-            let result = self?.callCodex(screenText: screenText, cwd: session.cwd)
+            let response = self?.callCodex(screenText: screenText, cwd: session.cwd)
 
             DispatchQueue.main.async {
                 self?.reviewInProgress = false
 
-                guard let result = result, !result.isEmpty else {
-                    PairLog.info("Codex returned empty result")
+                guard let response = response, !response.isEmpty else {
+                    PairLog.info("Codex returned empty")
+                    self?.status = "watching"
                     return
                 }
 
-                PairLog.info("Codex responded: \(result.prefix(100))")
+                PairLog.info("Codex: \(response.prefix(150))")
+                self?.status = "feedback"
 
-                // Send Codex's response to Claude
-                session.injectInput(result)
+                // Type response into Claude
+                session.injectInput(response)
+
+                // Reset so we watch for the next cycle
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    self?.status = "watching"
+                    self?.stableCount = 0
+                    self?.lastScreenHash = 0
+                }
             }
         }
     }
 
-    /// Call codex exec with the screen content.
     private func callCodex(screenText: String, cwd: String) -> String? {
+        let lastLines = screenText.split(separator: "\n").suffix(30).joined(separator: "\n")
+
         let prompt = """
-        You are reviewing a Claude Code terminal session. Claude has paused. Here is what's on screen:
+        You are reviewing a Claude Code session. Claude has paused. Here is the recent terminal output:
 
-        \(screenText.suffix(3000))
+        \(lastLines)
 
-        If Claude asked a question, answer it directly. Choose the most thorough option.
-        If Claude finished work, reply APPROVE if done, or give specific feedback.
-        Keep your response concise — it will be typed into Claude's terminal.
+        If Claude asked a question, answer it. Choose the most thorough option.
+        If Claude finished work, say APPROVE if done, or give specific feedback.
+        Be concise. Your response will be typed into Claude's terminal as user input.
         """
 
-        let process = Process()
-        let pipe = Pipe()
-
-        let codexPaths = [
-            "/usr/local/bin/codex",
-            "/opt/homebrew/bin/codex",
-        ]
+        let codexPaths = ["/usr/local/bin/codex", "/opt/homebrew/bin/codex"]
         let nvmDir = FileManager.default.homeDirectoryForCurrentUser.path + "/.nvm/versions/node"
         var allPaths = codexPaths
         if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmDir) {
@@ -136,10 +138,12 @@ class ClaudeMonitor: ObservableObject {
         }
 
         guard let codexPath = allPaths.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
-            PairLog.error("Codex CLI not found")
+            PairLog.error("Codex not found")
             return nil
         }
 
+        let process = Process()
+        let pipe = Pipe()
         process.executableURL = URL(fileURLWithPath: codexPath)
         process.arguments = ["exec", "-s", "read-only", prompt]
         process.currentDirectoryURL = URL(fileURLWithPath: cwd)

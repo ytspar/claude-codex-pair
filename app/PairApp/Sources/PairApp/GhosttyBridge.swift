@@ -83,7 +83,6 @@ final class GhosttyAppController {
         runtime.wakeup_cb = { _ in
             DispatchQueue.main.async {
                 GhosttyAppController.shared.tick()
-                ClaudeMonitor.shared.recordActivity()
             }
         }
 

@@ -143,16 +143,14 @@ struct CodexPanelView: View {
         .background(tm.bg)
     }
 
-    /// Show status based on sessions and Codex state
     var displayStatus: String {
+        // Monitor status takes priority (it knows real-time state)
+        let m = monitor.status
+        if m != "idle" { return m }
+        // Fall back to Codex state file status
         let s = store.state.status
-        // If Codex has an active state (reviewing, feedback, etc.), show that
         if s != "idle" { return s }
-        // If sessions exist, we're watching
-        if !sessionManager.sessions.isEmpty {
-            return "watching"
-        }
-        return "idle"
+        return sessionManager.sessions.isEmpty ? "idle" : "watching"
     }
 
     func statusSubtitle(_ s: String) -> String {
