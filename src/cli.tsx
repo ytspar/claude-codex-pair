@@ -177,12 +177,21 @@ program
 			client.on("connect", () => {
 				client.write(JSON.stringify({ action: "create_session", surface: id, text: cwd }));
 			});
-			client.on("data", (d) => {
+			client.on("data", async (d) => {
 				const resp = JSON.parse(d.toString());
 				if (resp.ok) {
 					console.log(green(`✓ Launched Claude session: ${id}`));
 					console.log(dim(`  directory: ${cwd}`));
 					console.log(dim(`  Codex injects input via PairApp IPC`));
+					// Bring PairApp to front
+					try {
+						const { execFile: ef } = await import("node:child_process");
+						const { promisify } = await import("node:util");
+						const execFileAsync = promisify(ef);
+						await execFileAsync("osascript", [
+							"-e", `tell application "System Events" to set frontmost of process "PairApp" to true`,
+						]);
+					} catch { /* ignore */ }
 				} else {
 					console.error(red(`Failed: ${resp.error}`));
 				}

@@ -24,6 +24,11 @@ struct GhosttySessionView: NSViewRepresentable {
             PairLog.info("Ghostty surface closed for \(session.id)")
         }
 
+        // Auto-focus the terminal so user can type immediately
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            view.window?.makeFirstResponder(view)
+        }
+
         return view
     }
 
