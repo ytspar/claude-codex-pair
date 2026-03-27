@@ -46,11 +46,8 @@ struct PairWindowView: View {
                             onClose: { sessionManager.removeSession($0) },
                             onNew: { showProjectPicker = true }
                         )
-                        // Separator between tabs and terminal
-                        Rectangle()
-                            .fill(themeManager.border)
-                            .frame(height: 1)
-                            .padding(.bottom, 6)
+                        // Spacing between tabs and terminal
+                        Spacer().frame(height: 6)
                     }
 
                     ZStack {

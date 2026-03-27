@@ -43,6 +43,10 @@ struct SessionToolbar: View {
         }
         .frame(height: 34)
         .background(themeManager.bg)
+        .overlay(
+            Rectangle().fill(themeManager.border).frame(height: 1),
+            alignment: .bottom
+        )
     }
 }
 
@@ -85,7 +89,8 @@ struct ToolbarTab: View {
         .overlay(
             Rectangle()
                 .fill(isActive ? themeManager.accent : Color.clear)
-                .frame(height: 2),
+                .frame(height: 2)
+                .offset(y: 1),  // Sit on top of the separator, not above it
             alignment: .bottom
         )
         .onHover { isHovered = $0 }
