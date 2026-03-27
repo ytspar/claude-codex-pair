@@ -2,12 +2,20 @@
 # Release script for Pair (claude-codex-pair)
 # Usage: ./scripts/release.sh <version>
 # Example: ./scripts/release.sh 0.2.0
+#
+# Code signing:
+#   Set APPLE_IDENTITY to your Developer ID for full signing + notarization.
+#   Otherwise falls back to ad-hoc signing.
+#
+#   export APPLE_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+#   export APPLE_ID="your@email.com"
+#   export APPLE_TEAM_ID="XXXXXXXXXX"
+#   export APPLE_APP_PASSWORD="xxxx-xxxx-xxxx-xxxx"  # app-specific password
 
 set -e
 
 VERSION="${1:?Usage: $0 <version> (e.g. 0.2.0)}"
 DATE=$(date +%Y-%m-%d)
-DISPLAY_DATE=$(date +"%B %-d, %Y")
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "=== Releasing Pair v${VERSION} (${DATE}) ==="
@@ -65,7 +73,7 @@ cat > "$RELEASE_DIR/Pair.app/Contents/Info.plist" << PLIST
     <key>CFBundleExecutable</key><string>Pair</string>
     <key>CFBundleIdentifier</key><string>com.ytspar.pair</string>
     <key>CFBundleName</key><string>Pair</string>
-    <key>CFBundleDisplayName</key><string>Pair — Claude + Codex</string>
+    <key>CFBundleDisplayName</key><string>Pair</string>
     <key>CFBundleVersion</key><string>${VERSION}</string>
     <key>CFBundleShortVersionString</key><string>${VERSION}</string>
     <key>CFBundlePackageType</key><string>APPL</string>
@@ -77,20 +85,49 @@ cat > "$RELEASE_DIR/Pair.app/Contents/Info.plist" << PLIST
 </plist>
 PLIST
 
-# 5. Sign
-echo "Ad-hoc signing..."
+# 5. Code sign
+echo "Signing..."
 xattr -cr "$RELEASE_DIR/Pair.app"
-codesign --force --deep --sign - "$RELEASE_DIR/Pair.app"
-codesign --verify --deep --strict "$RELEASE_DIR/Pair.app"
+
+if [ -n "$APPLE_IDENTITY" ]; then
+    echo "  Using Developer ID: $APPLE_IDENTITY"
+
+    # Hardened runtime required for notarization
+    codesign --force --deep --options runtime \
+        --sign "$APPLE_IDENTITY" \
+        --timestamp \
+        "$RELEASE_DIR/Pair.app"
+    codesign --verify --deep --strict "$RELEASE_DIR/Pair.app"
+
+    # 5b. Notarize
+    echo "Notarizing..."
+    ZIP_FOR_NOTARY="/tmp/pair-notarize-${VERSION}.zip"
+    ditto -c -k --keepParent "$RELEASE_DIR/Pair.app" "$ZIP_FOR_NOTARY"
+
+    xcrun notarytool submit "$ZIP_FOR_NOTARY" \
+        --apple-id "$APPLE_ID" \
+        --team-id "$APPLE_TEAM_ID" \
+        --password "$APPLE_APP_PASSWORD" \
+        --wait
+
+    # Staple the notarization ticket to the app
+    xcrun stapler staple "$RELEASE_DIR/Pair.app"
+    echo "  Notarization complete + stapled"
+    rm -f "$ZIP_FOR_NOTARY"
+else
+    echo "  Ad-hoc signing (no APPLE_IDENTITY set)"
+    echo "  For full signing: export APPLE_IDENTITY='Developer ID Application: ...'"
+    codesign --force --deep --sign - "$RELEASE_DIR/Pair.app"
+    codesign --verify --deep --strict "$RELEASE_DIR/Pair.app"
+fi
 
 # 6. Zip
 echo "Creating zip..."
-cd /tmp
-ZIP_NAME="pair-v${VERSION}-macos-arm64.zip"
-rm -f "$ZIP_NAME"
 cd "$RELEASE_DIR"
+ZIP_NAME="pair-v${VERSION}-macos-arm64.zip"
+rm -f "/tmp/$ZIP_NAME"
 zip -r "/tmp/$ZIP_NAME" Pair.app
-echo "Created /tmp/$ZIP_NAME ($(du -h /tmp/$ZIP_NAME | cut -f1))"
+echo "  /tmp/$ZIP_NAME ($(du -h /tmp/$ZIP_NAME | cut -f1))"
 
 # 7. Git commit + tag
 echo "Committing..."
