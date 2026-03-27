@@ -43,9 +43,14 @@ struct ScratchpadView: View {
 
                 if !text.isEmpty {
                     Button(action: { text = "" }) {
-                        Text("Clear")
-                            .font(Theme.monoSmall)
-                            .foregroundColor(themeManager.textMuted)
+                        HStack(spacing: 4) {
+                            Text("Clear")
+                                .font(Theme.monoSmall)
+                            Text("esc")
+                                .font(Theme.monoTiny)
+                                .opacity(0.5)
+                        }
+                        .foregroundColor(themeManager.textMuted)
                     }
                     .buttonStyle(.plain)
                 }
@@ -54,8 +59,11 @@ struct ScratchpadView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.right.circle")
                             .font(Theme.monoSmall)
-                        Text("Send to Claude")
+                        Text("Send")
                             .font(Theme.monoSmall)
+                        Text("⌘↩")
+                            .font(Theme.monoTiny)
+                            .opacity(0.5)
                     }
                     .foregroundColor(text.isEmpty ? themeManager.textMuted : themeManager.accent)
                     .padding(.horizontal, 10)
