@@ -55,27 +55,7 @@ struct ScratchpadView: View {
                     .buttonStyle(.plain)
                 }
 
-                Button(action: sendToClaudeAction) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.right.circle")
-                            .font(Theme.monoSmall)
-                        Text("Send")
-                            .font(Theme.monoSmall)
-                        Text("⌘↩")
-                            .font(Theme.monoTiny)
-                            .opacity(0.5)
-                    }
-                    .foregroundColor(text.isEmpty ? themeManager.textMuted : themeManager.accent)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .strokeBorder(text.isEmpty ? themeManager.border : themeManager.accent, lineWidth: 1)
-                    )
-                }
-                .buttonStyle(.plain)
-                .contentShape(Rectangle())
-                .disabled(text.isEmpty)
+                SendButton(isEmpty: text.isEmpty, themeManager: themeManager, action: sendToClaudeAction)
             }
             .padding(.horizontal, 10)
             .padding(.bottom, 8)
@@ -99,7 +79,6 @@ struct ScratchpadView: View {
             session.injectInput(prompt)
             PairLog.info("Scratchpad sent \(prompt.count) chars to \(session.id)")
 
-            // Move focus to the terminal
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 if let ghosttyView = session.ghosttyView {
                     ghosttyView.window?.makeFirstResponder(ghosttyView)
@@ -108,3 +87,38 @@ struct ScratchpadView: View {
         }
     }
 }
+
+struct SendButton: View {
+    let isEmpty: Bool
+    let themeManager: ThemeManager
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text("Send")
+                .font(Theme.monoSmall)
+            if isHovered {
+                Text("⌘↩")
+                    .font(Theme.monoTiny)
+                    .transition(.opacity)
+            }
+        }
+        .foregroundColor(isEmpty ? themeManager.textMuted : themeManager.accent)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .background(isEmpty ? Color.clear : (isHovered ? themeManager.accent.opacity(0.1) : Color.clear))
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .strokeBorder(isEmpty ? themeManager.border : themeManager.accent, lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { if !isEmpty { action() } }
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovered = hovering
+            }
+        }
+    }
+}
+
