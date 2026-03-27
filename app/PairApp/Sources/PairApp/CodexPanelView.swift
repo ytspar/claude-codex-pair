@@ -25,18 +25,25 @@ struct CodexPanelView: View {
 
             // ── Status row ──
             HStack(spacing: 10) {
-                StatusDot(status: store.state.status)
-                Text(store.state.status.uppercased())
-                    .font(Theme.monoSmall)
-                    .foregroundColor(statusColor(store.state.status))
-                    .tracking(0.5)
+                StatusDot(status: displayStatus)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(statusLabel(displayStatus))
+                        .font(Theme.monoSmall)
+                        .foregroundColor(statusColor(displayStatus))
+                        .tracking(0.5)
+                    Text(statusSubtitle(displayStatus))
+                        .font(Theme.monoTiny)
+                        .foregroundColor(tm.textMuted)
+                }
                 Spacer()
-                Text("CYCLE \(store.state.cycle)")
-                    .font(Theme.monoTiny)
-                    .foregroundColor(tm.textSecondary)
+                if store.state.cycle > 0 {
+                    Text("CYCLE \(store.state.cycle)")
+                        .font(Theme.monoTiny)
+                        .foregroundColor(tm.textSecondary)
+                }
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 6)
+            .padding(.vertical, 8)
             .background(tm.bgElevated)
 
             // ── Decision badge ──
@@ -134,8 +141,44 @@ struct CodexPanelView: View {
         .background(tm.bg)
     }
 
+    /// Show "watching" when idle but a session exists (Claude is working)
+    var displayStatus: String {
+        let s = store.state.status
+        if s == "idle" && !SessionManager.shared.sessions.isEmpty {
+            return "watching"
+        }
+        return s
+    }
+
+    func statusSubtitle(_ s: String) -> String {
+        switch s {
+        case "watching": return "Monitoring Claude, will review when it pauses"
+        case "idle": return "No active sessions"
+        case "reviewing": return "Codex is reviewing Claude's work"
+        case "approved": return "Task complete, Claude can stop"
+        case "feedback": return "Feedback sent, Claude is continuing"
+        case "responding": return "Answering Claude's question"
+        case "error": return "Codex encountered an error"
+        default: return ""
+        }
+    }
+
+    func statusLabel(_ s: String) -> String {
+        switch s {
+        case "idle": return "IDLE"
+        case "watching": return "WATCHING"
+        case "reviewing": return "REVIEWING"
+        case "approved": return "APPROVED"
+        case "feedback": return "FEEDBACK SENT"
+        case "responding": return "RESPONDING"
+        case "error": return "ERROR"
+        default: return s.uppercased()
+        }
+    }
+
     func statusColor(_ s: String) -> Color {
         switch s {
+        case "watching": return tm.cyan
         case "reviewing": return tm.warning
         case "approved": return tm.accent
         case "feedback": return tm.purple
@@ -194,6 +237,7 @@ struct StatusDot: View {
 
     var color: Color {
         switch status {
+        case "watching": return tm.cyan
         case "reviewing": return tm.warning
         case "approved": return tm.accent
         case "feedback": return tm.purple
@@ -202,15 +246,40 @@ struct StatusDot: View {
         }
     }
 
+    @State private var isPulsing = false
+
+    private var shouldAnimate: Bool {
+        status == "watching" || status == "reviewing" || status == "responding"
+    }
+
     var body: some View {
-        Circle()
-            .fill(color)
-            .frame(width: 8, height: 8)
-            .overlay(
-                Circle()
-                    .fill(color.opacity(0.3))
-                    .frame(width: 14, height: 14)
-            )
+        ZStack {
+            // Outer glow ring — pulses when active
+            Circle()
+                .fill(color.opacity(shouldAnimate ? (isPulsing ? 0.4 : 0.1) : 0.2))
+                .frame(width: 16, height: 16)
+
+            // Inner dot
+            Circle()
+                .fill(color)
+                .frame(width: 8, height: 8)
+        }
+        .onAppear {
+            if shouldAnimate {
+                withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                    isPulsing = true
+                }
+            }
+        }
+        .onChange(of: status) { _ in
+            if shouldAnimate {
+                withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                    isPulsing = true
+                }
+            } else {
+                isPulsing = false
+            }
+        }
     }
 }
 
