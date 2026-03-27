@@ -27,12 +27,10 @@ struct ScratchpadView: View {
                     .frame(minHeight: 70, maxHeight: 130)
 
                 if text.isEmpty {
-                    // Offset to match TextEditor's internal text position exactly
-                    // TextEditor renders text at approximately (5, 7) from its frame origin
                     Text("Draft a prompt for Claude")
                         .font(Theme.mono)
                         .foregroundColor(themeManager.textMuted)
-                        .offset(x: 5, y: 7)
+                        .offset(x: 5, y: 0)
                         .allowsHitTesting(false)
                 }
             }
