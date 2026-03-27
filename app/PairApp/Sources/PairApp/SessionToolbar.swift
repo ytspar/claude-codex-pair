@@ -60,21 +60,27 @@ struct ToolbarTab: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Circle()
-                .fill(themeManager.accent)
-                .frame(width: 6, height: 6)
-            Text(name)
-                .font(Theme.monoSmall)
-                .foregroundColor(isActive ? themeManager.text : themeManager.textSecondary)
-                .lineLimit(1)
+            // Clickable area for selecting the tab
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(themeManager.accent)
+                    .frame(width: 6, height: 6)
+                Text(name)
+                    .font(Theme.monoSmall)
+                    .foregroundColor(isActive ? themeManager.text : themeManager.textSecondary)
+                    .lineLimit(1)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onSelect)
 
+            // Close button — separate hit target
             if isActive || isHovered {
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundColor(themeManager.textMuted)
-                }
-                .buttonStyle(.plain)
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(themeManager.textMuted)
+                    .frame(width: 16, height: 16)
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: onClose)
             }
         }
         .padding(.horizontal, 12)
@@ -86,8 +92,6 @@ struct ToolbarTab: View {
                 .frame(height: 2),
             alignment: .bottom
         )
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onSelect)
         .onHover { isHovered = $0 }
     }
 }

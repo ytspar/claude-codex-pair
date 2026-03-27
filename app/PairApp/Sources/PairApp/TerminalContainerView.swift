@@ -8,6 +8,7 @@ struct TerminalContainerView: NSViewRepresentable {
     @ObservedObject var themeManager = ThemeManager.shared
 
     func makeNSView(context: Context) -> NSView {
+        PairLog.info("makeNSView for session \(session.id)")
         let termView = LocalProcessTerminalView(frame: .zero)
         termView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
 

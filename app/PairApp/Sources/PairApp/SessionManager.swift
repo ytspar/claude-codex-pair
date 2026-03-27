@@ -6,7 +6,11 @@ class SessionManager: ObservableObject {
     static let shared = SessionManager()
 
     @Published var sessions: [PairSession] = []
-    @Published var activeSessionId: String?
+    @Published var activeSessionId: String? {
+        didSet {
+            PairLog.info("Active session changed: \(oldValue ?? "nil") → \(activeSessionId ?? "nil")")
+        }
+    }
 
     var activeSession: PairSession? {
         if let id = activeSessionId {
@@ -17,9 +21,11 @@ class SessionManager: ObservableObject {
 
     func createSession(cwd: String, id: String? = nil, command: String = "claude") {
         let sessionId = id ?? "pair-\(Int(Date().timeIntervalSince1970) % 100000)"
+        PairLog.info("Creating session \(sessionId) in \(cwd)")
         let session = PairSession(id: sessionId, cwd: cwd, command: command)
         sessions.append(session)
         activeSessionId = sessionId
+        PairLog.info("Sessions count: \(sessions.count)")
     }
 
     func removeSession(_ id: String) {
