@@ -17,26 +17,26 @@ struct ScratchpadView: View {
                 Rectangle().fill(themeManager.border).frame(height: 1)
             }
 
-            // Text editor
+            // Text editor — placeholder must match TextEditor's internal insets
             ZStack(alignment: .topLeading) {
-                if text.isEmpty {
-                    Text("Draft a prompt for Claude...")
-                        .font(Theme.mono)
-                        .foregroundColor(themeManager.textMuted)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 10)
-                }
-
                 TextEditor(text: $text)
                     .font(Theme.mono)
                     .foregroundColor(themeManager.text)
                     .scrollContentBackground(.hidden)
                     .background(Color.clear)
-                    .padding(.horizontal, 2)
                     .frame(minHeight: 70, maxHeight: 130)
+
+                if text.isEmpty {
+                    Text("Draft a prompt for Claude")
+                        .font(Theme.mono)
+                        .foregroundColor(themeManager.textMuted)
+                        .padding(.top, 8)    // Match TextEditor's internal top inset
+                        .padding(.leading, 6) // Match TextEditor's internal left inset
+                        .allowsHitTesting(false)
+                }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 10)
+            .padding(.top, 4)
 
             // Actions
             HStack(spacing: 8) {
@@ -73,6 +73,13 @@ struct ScratchpadView: View {
             .padding(.bottom, 8)
         }
         .background(themeManager.bg)
+        .onExitCommand { text = "" }  // Esc to clear
+        .background(
+            // Cmd+Enter to send
+            Button("") { sendToClaudeAction() }
+                .keyboardShortcut(.return, modifiers: .command)
+                .hidden()
+        )
     }
 
     private func sendToClaudeAction() {
