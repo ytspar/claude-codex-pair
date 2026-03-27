@@ -77,8 +77,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // File menu
         let fileMenu = NSMenu(title: "File")
         fileMenu.addItem(withTitle: "New Session", action: #selector(newSession), keyEquivalent: "n")
+        fileMenu.addItem(withTitle: "Close Session", action: #selector(closeSession), keyEquivalent: "w")
         fileMenu.addItem(NSMenuItem.separator())
-        fileMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        fileMenu.addItem(withTitle: "Close Window", action: #selector(closeWindow), keyEquivalent: "W")
 
         let fileMenuItem = NSMenuItem()
         fileMenuItem.submenu = fileMenu
@@ -115,6 +116,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         NSApp.mainMenu = mainMenu
         NSApp.windowsMenu = windowMenu
+    }
+
+    @objc func closeSession() {
+        if let id = SessionManager.shared.activeSessionId {
+            SessionManager.shared.removeSession(id)
+        }
+    }
+
+    @objc func closeWindow() {
+        mainWindow?.performClose(nil)
     }
 
     @objc func toggleTheme() {
