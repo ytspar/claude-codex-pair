@@ -74,6 +74,7 @@ struct ScratchpadView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .contentShape(Rectangle())
                 .disabled(text.isEmpty)
             }
             .padding(.horizontal, 10)
