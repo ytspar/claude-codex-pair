@@ -85,6 +85,18 @@ struct ScratchpadView: View {
         if let session = SessionManager.shared.activeSession {
             session.injectInput(prompt)
             PairLog.info("Scratchpad sent \(prompt.count) chars to \(session.id)")
+
+            // Move focus to the terminal
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                if let termView = session.terminalView {
+                    termView.window?.makeFirstResponder(termView)
+                }
+                #if USE_GHOSTTY
+                if let ghosttyView = session.ghosttyView {
+                    ghosttyView.window?.makeFirstResponder(ghosttyView)
+                }
+                #endif
+            }
         }
     }
 }

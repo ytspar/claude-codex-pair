@@ -65,6 +65,9 @@ class PairSession: Identifiable, ObservableObject {
     let command: String
 
     weak var terminalView: LocalProcessTerminalView?
+    #if USE_GHOSTTY
+    weak var ghosttyView: GhosttyTerminalView?
+    #endif
     var currentDirectory: String
 
     init(id: String, cwd: String, command: String) {
@@ -91,6 +94,12 @@ class PairSession: Identifiable, ObservableObject {
     }
 
     func injectInput(_ text: String) {
+        #if USE_GHOSTTY
+        if let ghostty = ghosttyView {
+            ghostty.sendText(text)
+            return
+        }
+        #endif
         terminalView?.send(txt: text)
     }
 }
