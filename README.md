@@ -2,11 +2,11 @@
   <img src="app/PairApp/Sources/PairApp/Resources/pairapp-light.png" width="128" alt="Pair icon" />
 </p>
 
-<h1 align="center">Pair — Claude + Codex</h1>
+<h1 align="center">Pair</h1>
 
 <p align="center">
-  Native macOS app that pairs Claude Code with OpenAI Codex for autonomous code review and task completion.<br/>
-  <sub>Requires macOS 14 (Sonoma) or later · Apple Silicon (ARM64)</sub>
+  Claude Code and OpenAI Codex, working together in a native macOS app.<br/>
+  <sub>macOS 14 (Sonoma) or later · Apple Silicon</sub>
 </p>
 
 <p align="center">
@@ -15,7 +15,9 @@
 
 ---
 
-When Claude Code pauses (completes a task or asks a question), Codex reviews the modified files and Claude's output, then decides: **approve**, **provide feedback**, or **request context**. Claude receives the feedback as direct terminal input and continues working. Codex acts as the human operator — answering questions, choosing options, and pushing back on shortcuts.
+Pair runs Claude Code in a managed terminal and lets Codex review its work every time it pauses. If the task isn't done, Codex sends feedback directly into Claude's input. If Claude asks a question, Codex answers it. Both models keep going until the job is actually finished.
+
+No clipboard hacks, no accessibility permissions. Codex types into the terminal through the PTY it owns.
 
 ## How It Works
 
@@ -73,32 +75,32 @@ graph LR
 
 ## Features
 
-- **Split-pane window** — Claude Code terminal (left) + Codex review panel (right)
-- **Completion gate** — Codex reviews when Claude pauses, blocks until task is truly done
-- **Direct input injection** — Codex types into Claude's terminal via PTY (no clipboard hacks)
-- **Multi-session tabs** — Run multiple Claude sessions, Cmd+1-9 to switch
-- **Project picker** — Scans ~/git for repos, shows recent projects with timestamps
-- **Auth check** — Verifies Claude + Codex authentication on launch (API key + subscription)
-- **Theme support** — Devbar emerald theme or user's Ghostty config colors (Cmd+T)
-- **Departure Mono** — Retro pixel terminal typography throughout
-- **Scratchpad** — Draft multi-line prompts without accidentally sending
-- **read_screen** — Codex reads Claude's terminal output as plain text
-- **Shell integration** — ZDOTDIR injection for zsh environment setup
-- **Shared rules.md** — Claude and Codex align on project conventions
-- **GhosttyKit ready** — Metal GPU rendering framework built (optional upgrade)
+- **Split-pane window.** Claude Code on the left, Codex review panel on the right.
+- **Completion gate.** Codex reviews when Claude pauses. Blocks until the task is done, not just reported as done.
+- **Direct PTY input.** Codex types into Claude's terminal. No clipboard, no System Events, no focus stealing.
+- **Multi-session tabs.** Run several Claude sessions at once. ⌘1-9 to switch.
+- **Project picker.** Scans ~/git for repos. Shows recent projects with timestamps.
+- **Auth check.** Verifies Claude and Codex are authenticated before starting. Supports API keys and subscriptions.
+- **Themes.** Ships with a dark emerald theme. Also reads your Ghostty config for colors and fonts. ⌘T to toggle.
+- **Departure Mono.** Pixel-retro terminal typography across the UI.
+- **Scratchpad.** Write multi-line prompts before sending. Enter makes new lines, not submissions.
+- **Screen reading.** Codex can read what Claude is displaying as plain text, without relying on transcripts.
+- **Shell integration.** Injects session IDs and socket paths into your shell via the ZDOTDIR trick.
+- **Shared rules.** Both models read a rules.md file you can edit to steer reviews.
+- **GhosttyKit ready.** The Metal GPU rendering framework is built. Optional upgrade from SwiftTerm.
 
 ## Prerequisites
 
 - macOS 14+
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
-- [Codex CLI](https://github.com/openai/codex) installed and authenticated
-- Node.js >= 22
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code), installed and authenticated
+- [Codex CLI](https://github.com/openai/codex), installed and authenticated
+- Node.js 22+
 
 ## Install
 
-### Download (macOS ARM64)
+### Download
 
-Download `pair-v0.1.0-macos-arm64.zip` from [Releases](https://github.com/ytspar/claude-codex-pair/releases), unzip, move `Pair.app` to Applications.
+Grab `pair-v0.1.0-macos-arm64.zip` from [Releases](https://github.com/ytspar/claude-codex-pair/releases). Unzip. Move `Pair.app` to Applications.
 
 ### Build from source
 
@@ -106,89 +108,86 @@ Download `pair-v0.1.0-macos-arm64.zip` from [Releases](https://github.com/ytspar
 git clone https://github.com/ytspar/claude-codex-pair
 cd claude-codex-pair/app/PairApp
 swift build -c release
-# Binary at .build/release/PairApp
 ```
 
 ### CLI tools (optional)
 
 ```bash
 cd claude-codex-pair
-npm install
-npm run build
-npm link
-# Provides: pair start, pair stop, pair status, pair review, pair report, pair config
+npm install && npm run build && npm link
 ```
+
+This gives you `pair start`, `pair stop`, `pair status`, `pair review`, `pair report`, and `pair config` in the terminal.
 
 ## Usage
 
-Launch the app → auth check → pick a project → Claude starts with Codex watching.
+Open the app. It checks auth, you pick a project, Claude starts working with Codex watching.
 
 | Shortcut | Action |
 |----------|--------|
-| **⌘N** | New session (directory picker) |
-| **⌘W** | Close current session |
-| **⌘1-9** | Switch between sessions |
-| **⌘T** | Toggle Devbar / Ghostty theme |
-| **⌘⇧W** | Close window |
+| ⌘N | New session |
+| ⌘W | Close session |
+| ⌘1-9 | Switch sessions |
+| ⌘T | Toggle theme |
+| ⌘⇧W | Close window |
 
-### CLI
+### From the CLI
 
 ```bash
-pair launch ~/my-project    # Open PairApp with a Claude session
-pair start                  # TUI monitor (install hooks, watch all sessions)
+pair launch ~/my-project    # Open Pair with a Claude session
+pair start                  # TUI monitor for all sessions
 pair review                 # One-shot Codex review of current diff
-pair report                 # Markdown report of session interactions
-pair config show            # Show configuration
+pair report                 # Markdown report of interactions
 ```
 
 ## Configuration
 
-Config at `~/.claude-codex-pair/config.json`:
+Stored at `~/.claude-codex-pair/config.json`.
 
-| Key | Default | Description |
+| Key | Default | What it does |
 |-----|---------|-------------|
-| `maxCycles` | `5` | Max review cycles before auto-approve |
-| `codexModel` | `null` | Override Codex model (null = default) |
-| `codexTimeout` | `300000` | Codex call timeout in ms |
-| `logDir` | `~/.claude-codex-pair/sessions` | Session log directory |
-| `targetSessions` | `null` | Only review these sessions/projects |
+| `maxCycles` | `5` | Review cycles before auto-approve |
+| `codexModel` | `null` | Override Codex model |
+| `codexTimeout` | `300000` | Codex call timeout (ms) |
+| `logDir` | `~/.claude-codex-pair/sessions` | Where session logs go |
+| `targetSessions` | `null` | Limit reviews to specific projects |
 
 ## Architecture
 
 ```
-app/PairApp/          # Native macOS app (Swift, SwiftUI, SwiftTerm)
-├── PairWindowView    # Split layout: terminal + Codex panel
-├── SessionManager    # Multi-session PTY management
-├── CodexPanelView    # Review status, feedback, history
-├── ScratchpadView    # Draft prompts before sending
-├── IPCServer         # Unix socket (send_input, read_screen, send_key)
-├── AuthChecker       # Claude + Codex auth verification
-├── ThemeManager      # Devbar / Ghostty color switching
-├── GhosttyConfig     # Parse ~/.config/ghostty/config
-├── ShellIntegration  # ZDOTDIR trick for zsh
-└── GhosttyBridge     # Optional Metal GPU rendering
+app/PairApp/              Native macOS app (Swift, SwiftUI, SwiftTerm)
+├── PairWindowView        Split layout: terminal + Codex panel
+├── SessionManager        Multi-session PTY management
+├── CodexPanelView        Review status, feedback, history
+├── ScratchpadView        Draft prompts before sending
+├── IPCServer             Unix socket (send_input, read_screen, send_key)
+├── AuthChecker           Claude + Codex auth verification
+├── ThemeManager          Devbar / Ghostty color switching
+├── GhosttyConfig         Parse ~/.config/ghostty/config
+├── ShellIntegration      ZDOTDIR trick for zsh
+└── GhosttyBridge         Optional Metal GPU rendering
 
-src/                  # Node.js hook system
+src/                      Node.js hook system
 ├── monitor/
-│   ├── hook-handler  # Stop hook → Codex review → feedback
-│   ├── permission-handler  # Codex-gated tool approval
-│   └── transcript    # Parse Claude JSONL transcripts
+│   ├── hook-handler      Stop hook: Codex review, feedback loop
+│   ├── permission-handler Codex-gated tool approval
+│   └── transcript        Parse Claude JSONL transcripts
 ├── codex/
-│   ├── client        # Spawn codex exec --json (streaming)
-│   └── prompt-builder # Review + respond prompts
+│   ├── client            Spawn codex exec with streaming
+│   └── prompt-builder    Review + respond prompts
 └── shared/
-    ├── pair-terminal # IPC client for PairApp
-    └── rules.md      # Shared Claude↔Codex alignment
+    ├── pair-terminal     IPC client for PairApp
+    └── rules.md          Shared alignment file
 ```
 
 ## Safety
 
-- **Codex is read-only** — `codex exec -s read-only`, can never modify files
-- **Max cycle limit** — prevents infinite feedback loops (default 5)
-- **Graceful degradation** — Codex errors auto-approve, never block Claude
-- **Socket permissions** — IPC restricted to current user (`chmod 0o600`)
-- **No telemetry** — no analytics, no network calls beyond Claude/Codex CLIs
+- **Read-only Codex.** Always runs with `-s read-only`. Cannot modify files.
+- **Cycle limit.** Defaults to 5. Prevents infinite feedback loops.
+- **Graceful fallback.** If Codex errors out, Claude continues. Never blocks.
+- **Socket locked down.** IPC restricted to current user (0600 permissions).
+- **No telemetry.** No analytics, no tracking, no network calls except Claude and Codex.
 
 ## License
 
-MIT — Copyright (c) 2026 Yury Tspar
+MIT. Copyright (c) 2026 Yury Tspar.

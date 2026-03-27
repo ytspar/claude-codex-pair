@@ -115,10 +115,6 @@ struct CodexPanelView: View {
                 .padding(.horizontal, 12)
             }
 
-            Spacer()
-
-            Divider().background(tm.border)
-
             // ── Scratchpad ──
             ScratchpadView()
 

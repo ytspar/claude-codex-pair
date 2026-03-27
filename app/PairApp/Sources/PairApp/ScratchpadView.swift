@@ -83,7 +83,7 @@ struct ScratchpadView: View {
 
         // Send to the active session
         if let session = SessionManager.shared.activeSession {
-            session.injectInput(prompt + "\n")
+            session.injectInput(prompt)
             PairLog.info("Scratchpad sent \(prompt.count) chars to \(session.id)")
         }
     }
