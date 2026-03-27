@@ -1,0 +1,12 @@
+#!/bin/bash
+# Mock codex CLI for integration testing.
+# Returns a fixed JSONL response that mimics `codex exec --json`.
+
+# Simulate a brief processing delay
+sleep 1
+
+# Output JSONL events to stdout (same format as real codex exec --json)
+echo '{"type":"thread.started","thread_id":"mock-thread-001"}'
+echo '{"type":"turn.started"}'
+echo '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Yes, I approve this work. APPROVE"}}'
+echo '{"type":"turn.completed","usage":{"input_tokens":150,"output_tokens":12}}'
