@@ -98,18 +98,23 @@ graph LR
 
 ## Install
 
-### Download
-
-Grab the latest zip from [Releases](https://github.com/ytspar/claude-codex-pair/releases). Unzip, then double-click `install.command` to open the app. This removes the macOS quarantine flag (the app is not yet notarized by Apple).
-
-Alternatively, right-click `Pair.app` → Open → Open, or run `xattr -cr Pair.app` in terminal.
-
-### Build from source
+### Build from source (recommended)
 
 ```bash
 git clone https://github.com/ytspar/claude-codex-pair
 cd claude-codex-pair/app/PairApp
 swift build -c release
+# Run:
+.build/release/PairApp
+```
+
+### Pre-built binary
+
+Download from [Releases](https://github.com/ytspar/claude-codex-pair/releases). The binary is ad-hoc signed but not Apple-notarized, so macOS will block it. To allow it:
+
+```bash
+xattr -cr Pair.app
+open Pair.app
 ```
 
 ### CLI tools (optional)
