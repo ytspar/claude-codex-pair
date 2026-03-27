@@ -121,15 +121,19 @@ else
     codesign --verify --deep --strict "$RELEASE_DIR/Pair.app"
 fi
 
-# 6. Zip
+# 6. Add install helper
+cp "$REPO_ROOT/scripts/install.command" "$RELEASE_DIR/"
+chmod +x "$RELEASE_DIR/install.command"
+
+# 7. Zip
 echo "Creating zip..."
 cd "$RELEASE_DIR"
 ZIP_NAME="pair-v${VERSION}-macos-arm64.zip"
 rm -f "/tmp/$ZIP_NAME"
-zip -r "/tmp/$ZIP_NAME" Pair.app
+zip -r "/tmp/$ZIP_NAME" Pair.app install.command
 echo "  /tmp/$ZIP_NAME ($(du -h /tmp/$ZIP_NAME | cut -f1))"
 
-# 7. Git commit + tag
+# 8. Git commit + tag
 echo "Committing..."
 cd "$REPO_ROOT"
 git add -A

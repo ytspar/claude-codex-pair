@@ -100,13 +100,9 @@ graph LR
 
 ### Download
 
-Grab the latest zip from [Releases](https://github.com/ytspar/claude-codex-pair/releases). Unzip, then remove the quarantine flag (the app is not code-signed):
+Grab the latest zip from [Releases](https://github.com/ytspar/claude-codex-pair/releases). Unzip, then double-click `install.command` to open the app. This removes the macOS quarantine flag (the app is not yet notarized by Apple).
 
-```bash
-xattr -cr Pair.app
-```
-
-Move `Pair.app` to Applications.
+Alternatively, right-click `Pair.app` → Open → Open, or run `xattr -cr Pair.app` in terminal.
 
 ### Build from source
 
