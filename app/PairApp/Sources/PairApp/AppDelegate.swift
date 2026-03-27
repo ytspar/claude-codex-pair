@@ -62,15 +62,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let sessions = SessionManager.shared.sessions
         guard !sessions.isEmpty else { return .terminateNow }
 
-        let alert = NSAlert()
-        alert.messageText = "Quit Pair?"
-        alert.informativeText = "\(sessions.count) active Claude session\(sessions.count == 1 ? "" : "s") will be closed."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Quit")
-        alert.addButton(withTitle: "Cancel")
-
-        let response = alert.runModal()
-        return response == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
+        showQuitDialog(sessionCount: sessions.count)
+        return .terminateCancel
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
