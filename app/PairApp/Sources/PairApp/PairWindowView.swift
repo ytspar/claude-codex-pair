@@ -36,29 +36,32 @@ struct PairWindowView: View {
             HStack(spacing: 0) {
                 // Left: Terminal
                 VStack(spacing: 0) {
-                    // Toolbar — always visible when sessions exist
-                    if !sessionManager.sessions.isEmpty {
+                    // Toolbar — visible when sessions exist or picker is open
+                    if !sessionManager.sessions.isEmpty || sessionManager.showProjectPicker {
                         SessionToolbar(
                             sessions: sessionManager.sessions,
-                            activeId: sessionManager.activeSessionId,
-                            onSelect: { sessionManager.activeSessionId = $0 },
+                            activeId: sessionManager.showProjectPicker ? nil : sessionManager.activeSessionId,
+                            showingBrowse: sessionManager.showProjectPicker,
+                            onSelect: { id in
+                                sessionManager.showProjectPicker = false
+                                sessionManager.activeSessionId = id
+                            },
                             onClose: { sessionManager.removeSession($0) },
-                            onNew: { sessionManager.showProjectPicker = true }
+                            onNew: { sessionManager.showProjectPicker = true },
+                            onCloseBrowse: { sessionManager.showProjectPicker = false }
                         )
-                        // Spacing between tabs and terminal
                         Spacer().frame(height: 6)
                     }
 
                     ZStack {
-                        // Keep ALL terminal views alive — hide inactive ones
-                        // This prevents crashes when switching tabs
+                        // Keep ALL terminal views alive
                         ForEach(sessionManager.sessions) { session in
                             GhosttySessionView(session: session)
-                                .opacity(session.id == sessionManager.activeSessionId ? 1 : 0)
-                                .allowsHitTesting(session.id == sessionManager.activeSessionId)
+                                .opacity(!sessionManager.showProjectPicker && session.id == sessionManager.activeSessionId ? 1 : 0)
+                                .allowsHitTesting(!sessionManager.showProjectPicker && session.id == sessionManager.activeSessionId)
                         }
 
-                        // Project picker overlay
+                        // Project picker as its own "tab"
                         if sessionManager.sessions.isEmpty || sessionManager.showProjectPicker {
                             ProjectPickerView { path in
                                 sessionManager.createSession(cwd: path)

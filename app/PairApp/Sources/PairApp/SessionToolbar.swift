@@ -1,25 +1,37 @@
 import SwiftUI
 
-/// Toolbar above the terminal — shows tabs, new/close buttons.
 struct SessionToolbar: View {
     @ObservedObject private var themeManager = ThemeManager.shared
     let sessions: [PairSession]
     let activeId: String?
+    var showingBrowse: Bool = false
     let onSelect: (String) -> Void
     let onClose: (String) -> Void
     let onNew: () -> Void
+    var onCloseBrowse: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 0) {
-            // Session tabs
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 0) {
+                    // Session tabs
                     ForEach(sessions) { session in
                         ToolbarTab(
                             name: String(session.cwd.split(separator: "/").last ?? "session"),
-                            isActive: session.id == activeId,
+                            isActive: session.id == activeId && !showingBrowse,
                             onSelect: { onSelect(session.id) },
                             onClose: { onClose(session.id) }
+                        )
+                    }
+
+                    // Browse tab (when project picker is open)
+                    if showingBrowse {
+                        ToolbarTab(
+                            name: "Browse",
+                            icon: "folder",
+                            isActive: true,
+                            onSelect: {},
+                            onClose: { onCloseBrowse?() }
                         )
                     }
                 }
@@ -27,13 +39,14 @@ struct SessionToolbar: View {
 
             Spacer()
 
-            // Action buttons
             HStack(spacing: 2) {
-                ToolbarButton(icon: "plus", tooltip: "New Session (⌘N)") {
-                    onNew()
+                if !showingBrowse {
+                    ToolbarButton(icon: "plus", tooltip: "New Tab (⌘T)") {
+                        onNew()
+                    }
                 }
 
-                if let id = activeId {
+                if let id = activeId, !showingBrowse {
                     ToolbarButton(icon: "xmark", tooltip: "Close Session (⌘W)") {
                         onClose(id)
                     }
@@ -53,6 +66,7 @@ struct SessionToolbar: View {
 struct ToolbarTab: View {
     @ObservedObject private var themeManager = ThemeManager.shared
     let name: String
+    var icon: String? = nil
     let isActive: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
@@ -60,11 +74,16 @@ struct ToolbarTab: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            // Clickable area for selecting the tab
             HStack(spacing: 6) {
-                Circle()
-                    .fill(themeManager.accent)
-                    .frame(width: 6, height: 6)
+                if let icon = icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 11))
+                        .foregroundColor(themeManager.accent)
+                } else {
+                    Circle()
+                        .fill(themeManager.accent)
+                        .frame(width: 6, height: 6)
+                }
                 Text(name)
                     .font(Theme.monoSmall)
                     .foregroundColor(isActive ? themeManager.text : themeManager.textSecondary)
@@ -73,7 +92,6 @@ struct ToolbarTab: View {
             .contentShape(Rectangle())
             .onTapGesture(perform: onSelect)
 
-            // Close button — separate hit target
             if isActive || isHovered {
                 Image(systemName: "xmark")
                     .font(.system(size: 8, weight: .bold))
@@ -90,7 +108,7 @@ struct ToolbarTab: View {
             Rectangle()
                 .fill(isActive ? themeManager.accent : Color.clear)
                 .frame(height: 2)
-                .offset(y: 1),  // Sit on top of the separator, not above it
+                .offset(y: 1),
             alignment: .bottom
         )
         .onHover { isHovered = $0 }
