@@ -100,7 +100,13 @@ graph LR
 
 ### Download
 
-Grab `pair-v0.1.0-macos-arm64.zip` from [Releases](https://github.com/ytspar/claude-codex-pair/releases). Unzip. Move `Pair.app` to Applications.
+Grab the latest zip from [Releases](https://github.com/ytspar/claude-codex-pair/releases). Unzip, then remove the quarantine flag (the app is not code-signed):
+
+```bash
+xattr -cr Pair.app
+```
+
+Move `Pair.app` to Applications.
 
 ### Build from source
 
