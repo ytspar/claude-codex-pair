@@ -196,4 +196,4 @@ src/                      Node.js hook system
 
 ## License
 
-MIT. Copyright (c) 2026 Yury Tspar.
+MIT. Copyright (c) 2026 Yury Tsukerman.
