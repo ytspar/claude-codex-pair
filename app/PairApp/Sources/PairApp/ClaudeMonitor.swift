@@ -30,10 +30,12 @@ class ClaudeMonitor: ObservableObject {
 
     /// Called when terminal output is received (from Ghostty surface callback).
     func recordActivity() {
+        let wasActive = isClaudeActive
         DispatchQueue.main.async { [weak self] in
             self?.lastActivity = Date()
-            if !(self?.isClaudeActive ?? false) {
+            if !wasActive {
                 self?.isClaudeActive = true
+                PairLog.info("Claude became active")
             }
         }
     }

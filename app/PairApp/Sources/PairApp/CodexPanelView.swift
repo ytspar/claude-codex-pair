@@ -143,14 +143,14 @@ struct CodexPanelView: View {
         .background(tm.bg)
     }
 
-    /// Show status based on Claude's activity and Codex state
+    /// Show status based on sessions and Codex state
     var displayStatus: String {
         let s = store.state.status
         // If Codex has an active state (reviewing, feedback, etc.), show that
         if s != "idle" { return s }
-        // Otherwise check if Claude is actively producing output
+        // If sessions exist, we're watching
         if !sessionManager.sessions.isEmpty {
-            return monitor.isClaudeActive ? "watching" : "waiting"
+            return "watching"
         }
         return "idle"
     }
