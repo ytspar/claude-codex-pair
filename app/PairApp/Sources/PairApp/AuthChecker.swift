@@ -78,11 +78,18 @@ struct AuthChecker {
         let pipe = Pipe()
 
         // Find the command in common paths
-        let paths = [
+        // Search common binary locations — don't hardcode specific versions
+        var paths = [
             "/usr/local/bin/\(command)",
             "/opt/homebrew/bin/\(command)",
-            NSHomeDirectory() + "/.nvm/versions/node/v22.20.0/bin/\(command)",
         ]
+        // Dynamically find NVM node bin if present
+        let nvmDir = NSHomeDirectory() + "/.nvm/versions/node"
+        if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmDir) {
+            for version in versions.sorted().reversed() {
+                paths.append("\(nvmDir)/\(version)/bin/\(command)")
+            }
+        }
 
         let fullPath = paths.first { FileManager.default.fileExists(atPath: $0) }
             ?? (runWhich(command) ?? "/usr/bin/env")

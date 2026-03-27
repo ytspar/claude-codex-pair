@@ -40,6 +40,9 @@ class IPCServer {
         guard bindResult == 0 else { close(serverSocket); return }
         guard listen(serverSocket, 5) == 0 else { close(serverSocket); return }
 
+        // Restrict socket to current user only
+        chmod(path, 0o600)
+
         isRunning = true
         let source = DispatchSource.makeReadSource(fileDescriptor: serverSocket, queue: queue)
         self.acceptSource = source
