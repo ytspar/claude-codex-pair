@@ -4,7 +4,7 @@ struct AboutView: View {
     @ObservedObject private var themeManager = ThemeManager.shared
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 20) {
             // Icon
             if let iconURL = Bundle.module.url(forResource: "AppIcon", withExtension: "icns", subdirectory: "Resources"),
                let icon = NSImage(contentsOf: iconURL) {
@@ -21,7 +21,7 @@ struct AboutView: View {
                 .font(.custom(Theme.fontName, size: 18))
                 .foregroundColor(themeManager.accent)
 
-            Text("v0.1.0 · March 26, 2026")
+            Text(AppVersion.displayString)
                 .font(.custom(Theme.fontName, size: 14))
                 .foregroundColor(themeManager.textMuted)
 
@@ -31,11 +31,12 @@ struct AboutView: View {
                 .font(.custom(Theme.fontName, size: 13))
                 .foregroundColor(themeManager.textSecondary)
                 .multilineTextAlignment(.center)
+                .lineSpacing(4)
                 .frame(maxWidth: 360)
 
             Divider().frame(width: 240)
 
-            VStack(spacing: 6) {
+            VStack(spacing: 8) {
                 Link("github.com/ytspar/claude-codex-pair", destination: URL(string: "https://github.com/ytspar/claude-codex-pair")!)
                     .font(.custom(Theme.fontName, size: 13))
                     .foregroundColor(themeManager.accent)
@@ -49,18 +50,17 @@ struct AboutView: View {
                     .foregroundColor(themeManager.textMuted)
             }
 
-            Spacer().frame(height: 12)
+            Spacer().frame(height: 4)
         }
         .padding(28)
-        .frame(width: 440, height: 540)
+        .frame(width: 440, height: 560)
         .background(themeManager.bg)
     }
 }
 
-/// Shows the About window.
 func showAboutWindow() {
     let window = NSWindow(
-        contentRect: NSRect(x: 0, y: 0, width: 440, height: 540),
+        contentRect: NSRect(x: 0, y: 0, width: 440, height: 560),
         styleMask: [.titled, .closable],
         backing: .buffered,
         defer: false
