@@ -83,6 +83,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // File menu
         let fileMenu = NSMenu(title: "File")
         fileMenu.addItem(withTitle: "New Session", action: #selector(newSession), keyEquivalent: "n")
+        fileMenu.addItem(withTitle: "New Tab", action: #selector(newSession), keyEquivalent: "t")
         fileMenu.addItem(withTitle: "Close Session", action: #selector(closeSession), keyEquivalent: "w")
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(withTitle: "Close Window", action: #selector(closeWindow), keyEquivalent: "W")
@@ -103,7 +104,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // View menu
         let viewMenu = NSMenu(title: "View")
-        viewMenu.addItem(withTitle: "Toggle Theme (Devbar/Ghostty)", action: #selector(toggleTheme), keyEquivalent: "t")
+        viewMenu.addItem(withTitle: "Toggle Theme (Devbar/Ghostty)", action: #selector(toggleTheme), keyEquivalent: "")
         viewMenu.addItem(NSMenuItem.separator())
         viewMenu.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
 

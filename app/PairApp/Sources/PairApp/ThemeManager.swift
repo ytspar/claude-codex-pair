@@ -48,6 +48,48 @@ class ThemeManager: ObservableObject {
         PairLog.info("Theme toggle: \(mode.rawValue) → \(mode == .devbar ? "Ghostty" : "Devbar")")
         mode = (mode == .devbar) ? .ghostty : .devbar
         PairLog.info("Theme toggle complete")
+
+        // Apply OSC color sequences to all Ghostty terminal surfaces
+        applyTerminalColors()
+    }
+
+    /// Send OSC escape sequences to update terminal colors for all sessions.
+    func applyTerminalColors() {
+        let config = mode == .ghostty ? (ghosttyConfig ?? GhosttyConfig.load()) : nil
+
+        let palette: [String]
+        if mode == .ghostty, let cfg = config {
+            // Use Ghostty config palette
+            palette = (0..<16).map { i in
+                cfg.palette[i]?.hexString ?? GhosttyConfig.devbarPalette[i] ?? "000000"
+            }
+        } else {
+            // Devbar palette
+            palette = (0..<16).map { GhosttyConfig.devbarPalette[$0] ?? "000000" }
+        }
+
+        let bgHex = mode == .ghostty
+            ? (config?.background?.hexString ?? "0a0f1a")
+            : "0a0f1a"
+        let fgHex = mode == .ghostty
+            ? (config?.foreground?.hexString ?? "f1f5f9")
+            : "f1f5f9"
+
+        // Build OSC sequence
+        var osc = ""
+        for (i, hex) in palette.enumerated() {
+            let r = String(hex.prefix(2))
+            let g = String(hex.dropFirst(2).prefix(2))
+            let b = String(hex.dropFirst(4).prefix(2))
+            osc += "\u{1B}]4;\(i);rgb:\(r)/\(g)/\(b)\u{07}"
+        }
+        osc += "\u{1B}]10;rgb:\(fgHex.prefix(2))/\(fgHex.dropFirst(2).prefix(2))/\(fgHex.dropFirst(4).prefix(2))\u{07}"
+        osc += "\u{1B}]11;rgb:\(bgHex.prefix(2))/\(bgHex.dropFirst(2).prefix(2))/\(bgHex.dropFirst(4).prefix(2))\u{07}"
+
+        // Send to all active sessions
+        for session in SessionManager.shared.sessions {
+            session.ghosttyView?.sendPaste(osc)  // OSC sequences are fine via paste API
+        }
     }
 
     private func reloadColors() {

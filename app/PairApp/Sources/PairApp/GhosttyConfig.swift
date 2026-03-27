@@ -134,6 +134,14 @@ extension GhosttyConfig {
 // MARK: - NSColor hex parsing
 
 extension NSColor {
+    var hexString: String {
+        guard let rgb = usingColorSpace(.sRGB) else { return "000000" }
+        return String(format: "%02x%02x%02x",
+                      Int(rgb.redComponent * 255),
+                      Int(rgb.greenComponent * 255),
+                      Int(rgb.blueComponent * 255))
+    }
+
     convenience init?(hex: String) {
         var hexStr = hex.trimmingCharacters(in: .whitespaces)
         if hexStr.hasPrefix("#") { hexStr = String(hexStr.dropFirst()) }

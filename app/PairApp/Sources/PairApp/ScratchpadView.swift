@@ -72,7 +72,7 @@ struct ScratchpadView: View {
             .padding(.horizontal, 10)
             .padding(.bottom, 8)
         }
-        .background(themeManager.bgElevated)
+        .background(themeManager.bg)
     }
 
     private func sendToClaudeAction() {
