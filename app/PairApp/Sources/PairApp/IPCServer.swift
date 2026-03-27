@@ -101,7 +101,14 @@ class IPCServer {
             guard let surfaceId = request.surface, let text = request.text else {
                 return IPCResponse(ok: false, error: "Missing surface or text")
             }
-            let success = SessionManager.shared.sendInput(sessionId: surfaceId, text: text)
+            // Dispatch to main thread for thread-safe access to @Published sessions
+            var success = false
+            let semaphore = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async {
+                success = SessionManager.shared.sendInput(sessionId: surfaceId, text: text)
+                semaphore.signal()
+            }
+            semaphore.wait()
             return IPCResponse(ok: success, error: success ? nil : "Session not found")
 
         case "list_sessions":

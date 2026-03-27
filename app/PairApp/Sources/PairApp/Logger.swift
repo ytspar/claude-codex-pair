@@ -32,9 +32,9 @@ enum PairLog {
         if let data = entry.data(using: .utf8) {
             if FileManager.default.fileExists(atPath: logFile) {
                 if let handle = FileHandle(forWritingAtPath: logFile) {
+                    defer { handle.closeFile() }
                     handle.seekToEndOfFile()
                     handle.write(data)
-                    handle.closeFile()
                 }
             } else {
                 FileManager.default.createFile(atPath: logFile, contents: data)
