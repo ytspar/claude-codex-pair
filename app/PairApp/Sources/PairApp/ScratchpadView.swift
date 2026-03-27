@@ -19,28 +19,25 @@ struct ScratchpadView: View {
 
             // Text editor with aligned placeholder
             ZStack(alignment: .topLeading) {
-                // TextEditor is the base layer — controls cursor position
                 TextEditor(text: $text)
                     .font(Theme.mono)
                     .foregroundColor(themeManager.text)
                     .scrollContentBackground(.hidden)
                     .background(Color.clear)
-                    .padding(.leading, 2)
                     .frame(minHeight: 70, maxHeight: 130)
 
-                // Placeholder sits exactly where the cursor/text renders
-                // TextEditor has ~5px internal horizontal inset + 8px vertical
                 if text.isEmpty {
+                    // Offset to match TextEditor's internal text position exactly
+                    // TextEditor renders text at approximately (5, 7) from its frame origin
                     Text("Draft a prompt for Claude")
                         .font(Theme.mono)
                         .foregroundColor(themeManager.textMuted)
-                        .padding(.top, 8)
-                        .padding(.leading, 7)
+                        .offset(x: 5, y: 7)
                         .allowsHitTesting(false)
                 }
             }
-            .padding(.horizontal, 8)
-            .padding(.top, 4)
+            .padding(.horizontal, 10)
+            .padding(.top, 12)
 
             // Actions
             HStack(spacing: 8) {
