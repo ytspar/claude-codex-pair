@@ -26,33 +26,29 @@ struct QuitDialogView: View {
                 .multilineTextAlignment(.center)
 
             HStack(spacing: 12) {
-                Button(action: onCancel) {
-                    Text("Cancel")
-                        .font(Theme.mono)
-                        .foregroundColor(themeManager.textSecondary)
-                        .frame(width: 120)
-                        .padding(.vertical, 8)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .strokeBorder(themeManager.border, lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.cancelAction)
+                Text("Cancel")
+                    .font(Theme.mono)
+                    .foregroundColor(themeManager.textSecondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(themeManager.border, lineWidth: 1)
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: onCancel)
 
-                Button(action: onQuit) {
-                    Text("Quit")
-                        .font(Theme.mono)
-                        .foregroundColor(themeManager.error)
-                        .frame(width: 120)
-                        .padding(.vertical, 8)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .strokeBorder(themeManager.error.opacity(0.5), lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.defaultAction)
+                Text("Quit")
+                    .font(Theme.mono)
+                    .foregroundColor(themeManager.error)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(themeManager.error.opacity(0.5), lineWidth: 1)
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: onQuit)
             }
         }
         .padding(32)
@@ -82,7 +78,8 @@ func showQuitDialog(sessionCount: Int) {
         sessionCount: sessionCount,
         onQuit: {
             window.close()
-            NSApp.reply(toApplicationShouldTerminate: true)
+            (NSApp.delegate as? AppDelegate)?.quitConfirmed = true
+            NSApp.terminate(nil)
         },
         onCancel: {
             window.close()

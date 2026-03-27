@@ -58,7 +58,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         IPCServer.shared.start()
     }
 
+    var quitConfirmed = false
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if quitConfirmed { return .terminateNow }
+
         let sessions = SessionManager.shared.sessions
         guard !sessions.isEmpty else { return .terminateNow }
 
