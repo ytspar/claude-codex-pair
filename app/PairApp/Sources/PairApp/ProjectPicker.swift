@@ -13,10 +13,10 @@ struct ProjectPickerView: View {
             // Header
             HStack {
                 Image(systemName: "folder.badge.plus")
-                    .font(.system(size: 18))
+                    .font(Theme.monoTitle)
                     .foregroundColor(themeManager.accent)
                 Text("SELECT PROJECT")
-                    .font(.system(size: 14, weight: .bold, design: .monospaced))
+                    .font(Theme.mono)
                     .foregroundColor(themeManager.accent)
                     .tracking(1.5)
                 Spacer()
@@ -25,7 +25,7 @@ struct ProjectPickerView: View {
                         Image(systemName: "folder")
                         Text("Browse...")
                     }
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(Theme.monoSmall)
                     .foregroundColor(themeManager.textSecondary)
                 }
                 .buttonStyle(.plain)
@@ -39,7 +39,7 @@ struct ProjectPickerView: View {
                     .foregroundColor(themeManager.textMuted)
                 TextField("Search projects...", text: $searchText)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13, design: .monospaced))
+                    .font(Theme.monoSmall)
                     .foregroundColor(themeManager.text)
             }
             .padding(.horizontal, 12)
@@ -56,16 +56,16 @@ struct ProjectPickerView: View {
                 LazyVStack(spacing: 0) {
                     if filteredProjects.isEmpty && !store.recentProjects.isEmpty {
                         Text("No matching projects")
-                            .font(.system(size: 13, design: .monospaced))
+                            .font(Theme.monoSmall)
                             .foregroundColor(themeManager.textMuted)
                             .padding(20)
                     } else if store.recentProjects.isEmpty {
                         VStack(spacing: 12) {
                             Text("No recent projects")
-                                .font(.system(size: 13, design: .monospaced))
+                                .font(Theme.monoSmall)
                                 .foregroundColor(themeManager.textMuted)
                             Text("Use Browse or scan ~/git to get started")
-                                .font(.system(size: 12, design: .monospaced))
+                                .font(Theme.monoSmall)
                                 .foregroundColor(themeManager.textMuted)
                         }
                         .padding(20)
@@ -88,13 +88,13 @@ struct ProjectPickerView: View {
                     store.scanDirectory(NSHomeDirectory() + "/git")
                 }
                 .buttonStyle(.plain)
-                .font(.system(size: 12, design: .monospaced))
+                .font(Theme.monoSmall)
                 .foregroundColor(themeManager.accent)
 
                 Spacer()
 
                 Text("\(store.recentProjects.count) projects")
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(Theme.monoTiny)
                     .foregroundColor(themeManager.textMuted)
             }
             .padding(.horizontal, 20)
@@ -141,16 +141,16 @@ struct ProjectRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: project.hasGit ? "chevron.left.forwardslash.chevron.right" : "folder")
-                .font(.system(size: 14))
+                .font(Theme.mono)
                 .foregroundColor(project.hasGit ? themeManager.accent : themeManager.textMuted)
                 .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(project.name)
-                    .font(.system(size: 14, weight: .medium, design: .monospaced))
+                    .font(Theme.mono)
                     .foregroundColor(themeManager.text)
                 Text(project.shortPath)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(Theme.monoTiny)
                     .foregroundColor(themeManager.textMuted)
             }
 
@@ -158,7 +158,7 @@ struct ProjectRow: View {
 
             if let lastOpened = project.lastOpened {
                 Text(timeAgo(lastOpened))
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(Theme.monoTiny)
                     .foregroundColor(themeManager.textMuted)
             }
         }
