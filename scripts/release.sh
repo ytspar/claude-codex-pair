@@ -77,7 +77,13 @@ cat > "$RELEASE_DIR/Pair.app/Contents/Info.plist" << PLIST
 </plist>
 PLIST
 
-# 5. Zip
+# 5. Sign
+echo "Ad-hoc signing..."
+xattr -cr "$RELEASE_DIR/Pair.app"
+codesign --force --deep --sign - "$RELEASE_DIR/Pair.app"
+codesign --verify --deep --strict "$RELEASE_DIR/Pair.app"
+
+# 6. Zip
 echo "Creating zip..."
 cd /tmp
 ZIP_NAME="pair-v${VERSION}-macos-arm64.zip"
@@ -86,7 +92,7 @@ cd "$RELEASE_DIR"
 zip -r "/tmp/$ZIP_NAME" Pair.app
 echo "Created /tmp/$ZIP_NAME ($(du -h /tmp/$ZIP_NAME | cut -f1))"
 
-# 6. Git commit + tag
+# 7. Git commit + tag
 echo "Committing..."
 cd "$REPO_ROOT"
 git add -A
