@@ -11,6 +11,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         PairLog.installCrashHandlers()
         PairLog.info("PairApp launching")
 
+        // Register Departure Mono font
+        if let fontURL = Bundle.module.url(forResource: "DepartureMono-Regular", withExtension: "otf", subdirectory: "Resources") {
+            CTFontManagerRegisterFontsForURL(fontURL as CFURL, .process, nil)
+            PairLog.info("Registered Departure Mono font")
+        }
+
         // Set app icon
         if let iconURL = Bundle.module.url(forResource: "AppIcon", withExtension: "icns", subdirectory: "Resources"),
            let icon = NSImage(contentsOf: iconURL) {
