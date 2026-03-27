@@ -117,6 +117,11 @@ struct CodexPanelView: View {
 
             Spacer()
 
+            Divider().background(tm.border)
+
+            // ── Scratchpad ──
+            ScratchpadView()
+
             // ── Footer ──
             HStack(spacing: 6) {
                 Circle()
