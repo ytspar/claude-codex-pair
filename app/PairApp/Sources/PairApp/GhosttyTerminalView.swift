@@ -229,19 +229,24 @@ final class GhosttyTerminalView: NSView {
 
         let mods = Self.ghosttyMods(from: event.modifierFlags)
 
-        // Send the text if available
-        if let chars = event.characters, !chars.isEmpty {
-            chars.withCString { ptr in
-                ghostty_surface_text(surface, ptr, UInt(chars.utf8.count))
-            }
-        }
-
+        // Send key event WITH the text field populated.
+        // This is the correct Ghostty API for keyboard input — it goes through
+        // the key handling pipeline, not the paste pipeline.
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = GHOSTTY_ACTION_PRESS
         keyEvent.mods = mods
         keyEvent.keycode = UInt32(event.keyCode)
         keyEvent.composing = false
-        _ = ghostty_surface_key(surface, keyEvent)
+
+        if let chars = event.characters, !chars.isEmpty {
+            chars.withCString { ptr in
+                keyEvent.text = ptr
+                _ = ghostty_surface_key(surface, keyEvent)
+            }
+        } else {
+            keyEvent.text = nil
+            _ = ghostty_surface_key(surface, keyEvent)
+        }
     }
 
     override func keyUp(with event: NSEvent) {
@@ -271,8 +276,15 @@ final class GhosttyTerminalView: NSView {
             return
         }
         guard !text.isEmpty else { return }
+        // Send via key event with text, not ghostty_surface_text (which triggers paste mode)
         text.withCString { ptr in
-            ghostty_surface_text(surface, ptr, UInt(text.utf8.count))
+            var keyEvent = ghostty_input_key_s()
+            keyEvent.action = GHOSTTY_ACTION_PRESS
+            keyEvent.mods = GHOSTTY_MODS_NONE
+            keyEvent.keycode = 0
+            keyEvent.text = ptr
+            keyEvent.composing = false
+            _ = ghostty_surface_key(surface, keyEvent)
         }
     }
 
@@ -350,19 +362,22 @@ final class GhosttyTerminalView: NSView {
     // Public API
     // -----------------------------------------------------------------------
 
-    /// Send text as simulated typing, one character at a time.
-    /// Avoids ghostty_surface_text's bracketed paste which puts Claude in paste mode.
+    /// Send text as simulated typing via key events (no paste brackets).
+    /// Used for IPC injection and scratchpad.
     func sendText(_ text: String) {
         guard let surface else { return }
-        for char in text {
-            let s = String(char)
-            s.withCString { ptr in
-                ghostty_surface_text(surface, ptr, UInt(s.utf8.count))
-            }
+        text.withCString { ptr in
+            var keyEvent = ghostty_input_key_s()
+            keyEvent.action = GHOSTTY_ACTION_PRESS
+            keyEvent.mods = GHOSTTY_MODS_NONE
+            keyEvent.keycode = 0
+            keyEvent.text = ptr
+            keyEvent.composing = false
+            _ = ghostty_surface_key(surface, keyEvent)
         }
     }
 
-    /// Send text as paste (with bracketed paste markers). Use for actual Cmd+V paste.
+    /// Send text as paste (with bracketed paste markers). For actual Cmd+V.
     func sendPaste(_ text: String) {
         guard let surface else { return }
         text.withCString { ptr in
