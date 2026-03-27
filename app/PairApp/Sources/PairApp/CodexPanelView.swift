@@ -5,6 +5,7 @@ struct CodexPanelView: View {
     @StateObject private var store = CodexStore()
     @ObservedObject private var tm = ThemeManager.shared
     @ObservedObject private var sessionManager = SessionManager.shared
+    @ObservedObject private var monitor = ClaudeMonitor.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -142,18 +143,22 @@ struct CodexPanelView: View {
         .background(tm.bg)
     }
 
-    /// Show "watching" when idle but a session exists (Claude is working)
+    /// Show status based on Claude's activity and Codex state
     var displayStatus: String {
         let s = store.state.status
-        if s == "idle" && !sessionManager.sessions.isEmpty {
-            return "watching"
+        // If Codex has an active state (reviewing, feedback, etc.), show that
+        if s != "idle" { return s }
+        // Otherwise check if Claude is actively producing output
+        if !sessionManager.sessions.isEmpty {
+            return monitor.isClaudeActive ? "watching" : "waiting"
         }
-        return s
+        return "idle"
     }
 
     func statusSubtitle(_ s: String) -> String {
         switch s {
         case "watching": return "Monitoring Claude, will review when it pauses"
+        case "waiting": return "Claude is idle, waiting for input"
         case "idle": return "No active sessions"
         case "reviewing": return "Codex is reviewing Claude's work"
         case "approved": return "Task complete, Claude can stop"
@@ -167,6 +172,7 @@ struct CodexPanelView: View {
     func statusLabel(_ s: String) -> String {
         switch s {
         case "idle": return "IDLE"
+        case "waiting": return "READY"
         case "watching": return "WATCHING"
         case "reviewing": return "REVIEWING"
         case "approved": return "APPROVED"
@@ -180,6 +186,7 @@ struct CodexPanelView: View {
     func statusColor(_ s: String) -> Color {
         switch s {
         case "watching": return tm.cyan
+        case "waiting": return tm.accent
         case "reviewing": return tm.warning
         case "approved": return tm.accent
         case "feedback": return tm.purple
@@ -239,6 +246,7 @@ struct StatusDot: View {
     var color: Color {
         switch status {
         case "watching": return tm.cyan
+        case "waiting": return tm.accent
         case "reviewing": return tm.warning
         case "approved": return tm.accent
         case "feedback": return tm.purple

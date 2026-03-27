@@ -56,6 +56,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         IPCServer.shared.start()
+        ClaudeMonitor.shared.start()
     }
 
     var quitConfirmed = false
