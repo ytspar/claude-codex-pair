@@ -4,6 +4,7 @@ import SwiftUI
 struct CodexPanelView: View {
     @StateObject private var store = CodexStore()
     @ObservedObject private var tm = ThemeManager.shared
+    @ObservedObject private var sessionManager = SessionManager.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -144,7 +145,7 @@ struct CodexPanelView: View {
     /// Show "watching" when idle but a session exists (Claude is working)
     var displayStatus: String {
         let s = store.state.status
-        if s == "idle" && !SessionManager.shared.sessions.isEmpty {
+        if s == "idle" && !sessionManager.sessions.isEmpty {
             return "watching"
         }
         return s
