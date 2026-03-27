@@ -1,93 +1,149 @@
-# claude-codex-pair
+<p align="center">
+  <img src="app/PairApp/Sources/PairApp/Resources/pairapp-light.png" width="128" alt="Pair icon" />
+</p>
 
-Codex monitors and reviews active Claude Code sessions, providing autonomous feedback and cross-model validation.
+<h1 align="center">Pair — Claude + Codex</h1>
 
-When Claude Code pauses (completes a task or asks a question), Codex reviews the modified files and Claude's output, then decides: **approve**, **provide feedback**, or **request context**. Claude receives the feedback and continues. On completion, a report of all interactions is generated.
+<p align="center">
+  Native macOS app that pairs Claude Code with OpenAI Codex for autonomous code review and task completion.<br/>
+  <sub>Requires macOS 14 (Sonoma) or later · Apple Silicon (ARM64)</sub>
+</p>
+
+<p align="center">
+  <a href="https://github.com/ytspar/claude-codex-pair/releases">Download</a> · <a href="#how-it-works">How it Works</a> · <a href="#install">Install</a>
+</p>
+
+---
+
+When Claude Code pauses (completes a task or asks a question), Codex reviews the modified files and Claude's output, then decides: **approve**, **provide feedback**, or **request context**. Claude receives the feedback as direct terminal input and continues working. Codex acts as the human operator — answering questions, choosing options, and pushing back on shortcuts.
 
 ## How It Works
 
-```
-┌─────────────────────┐     Stop hook    ┌─────────────────────┐
-│   Claude Code       │ ───────────────→ │  hook-handler        │
-│   (active session)  │                  │                      │
-│                     │ ←──────────────  │  1. Parse transcript │
-│   Reads hook        │  {decision,      │  2. git diff         │
-│   response, either  │   reason}        │  3. codex exec       │
-│   stops or continues│                  │  4. Log interaction  │
-└─────────────────────┘                  └──────────────────────┘
+```mermaid
+sequenceDiagram
+    participant User
+    participant PairApp
+    participant Claude as Claude Code
+    participant Hook as Hook Handler
+    participant Codex as Codex CLI
+
+    User->>PairApp: Select project directory
+    PairApp->>Claude: Launch in managed PTY
+    Claude->>Claude: Work on task...
+    Claude-->>Hook: Stop hook fires
+    Hook->>Hook: Parse transcript + git diff
+    Hook->>Codex: Review prompt (read-only)
+    Codex-->>Hook: APPROVE / FEEDBACK / CONTEXT
+    alt FEEDBACK
+        Hook->>PairApp: send_input via IPC
+        PairApp->>Claude: Type feedback into PTY
+        Claude->>Claude: Continue working...
+    else APPROVE
+        Hook-->>Claude: Allow stop
+    end
 ```
 
-The tool installs a Claude Code [Stop hook](https://docs.anthropic.com/en/docs/claude-code/hooks) that fires every time Claude finishes responding. The hook:
+```mermaid
+graph LR
+    subgraph PairApp [Native macOS App]
+        Terminal[Claude Terminal<br/>SwiftTerm PTY]
+        Panel[Codex Review Panel<br/>SwiftUI]
+        IPC[Unix Socket IPC]
+    end
 
-1. Reads Claude's JSONL transcript to extract recent actions
-2. Runs `git diff` to see what changed
-3. Calls `codex exec -s read-only` with a review prompt
-4. Returns `{"decision": "block", "reason": "<feedback>"}` to send Claude back, or approves to let Claude stop
+    subgraph Hooks [Claude Code Hooks]
+        Stop[Stop Hook]
+        Perm[Permission Hook]
+    end
+
+    subgraph External
+        CodexCLI[Codex CLI<br/>read-only]
+        Transcript[Session Transcript<br/>JSONL]
+        Rules[rules.md<br/>Shared Brain]
+    end
+
+    Stop -->|stdin JSON| IPC
+    IPC -->|send_input| Terminal
+    IPC -->|read_screen| Panel
+    Stop --> CodexCLI
+    CodexCLI --> Rules
+    Stop --> Transcript
+    Perm -->|approve/deny| CodexCLI
+```
+
+## Features
+
+- **Split-pane window** — Claude Code terminal (left) + Codex review panel (right)
+- **Completion gate** — Codex reviews when Claude pauses, blocks until task is truly done
+- **Direct input injection** — Codex types into Claude's terminal via PTY (no clipboard hacks)
+- **Multi-session tabs** — Run multiple Claude sessions, Cmd+1-9 to switch
+- **Project picker** — Scans ~/git for repos, shows recent projects with timestamps
+- **Auth check** — Verifies Claude + Codex authentication on launch (API key + subscription)
+- **Theme support** — Devbar emerald theme or user's Ghostty config colors (Cmd+T)
+- **Departure Mono** — Retro pixel terminal typography throughout
+- **Scratchpad** — Draft multi-line prompts without accidentally sending
+- **read_screen** — Codex reads Claude's terminal output as plain text
+- **Shell integration** — ZDOTDIR injection for zsh environment setup
+- **Shared rules.md** — Claude and Codex align on project conventions
+- **GhosttyKit ready** — Metal GPU rendering framework built (optional upgrade)
 
 ## Prerequisites
 
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and configured
-- [Codex CLI](https://github.com/openai/codex) installed (`npm install -g @openai/codex`)
+- macOS 14+
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
+- [Codex CLI](https://github.com/openai/codex) installed and authenticated
 - Node.js >= 22
 
 ## Install
 
+### Download (macOS ARM64)
+
+Download `pair-v0.1.0-macos-arm64.zip` from [Releases](https://github.com/ytspar/claude-codex-pair/releases), unzip, move `Pair.app` to Applications.
+
+### Build from source
+
 ```bash
-git clone https://github.com/ytspar/claude-codex-pair.git
+git clone https://github.com/ytspar/claude-codex-pair
+cd claude-codex-pair/app/PairApp
+swift build -c release
+# Binary at .build/release/PairApp
+```
+
+### CLI tools (optional)
+
+```bash
 cd claude-codex-pair
 npm install
 npm run build
 npm link
+# Provides: pair start, pair stop, pair status, pair review, pair report, pair config
 ```
 
 ## Usage
 
-### Start monitoring
+Launch the app → auth check → pick a project → Claude starts with Codex watching.
+
+| Shortcut | Action |
+|----------|--------|
+| **⌘N** | New session (directory picker) |
+| **⌘W** | Close current session |
+| **⌘1-9** | Switch between sessions |
+| **⌘T** | Toggle Devbar / Ghostty theme |
+| **⌘⇧W** | Close window |
+
+### CLI
 
 ```bash
-pair start                    # Auto-detect session, install hooks, launch TUI
-pair start --session <id>     # Monitor a specific session
+pair launch ~/my-project    # Open PairApp with a Claude session
+pair start                  # TUI monitor (install hooks, watch all sessions)
+pair review                 # One-shot Codex review of current diff
+pair report                 # Markdown report of session interactions
+pair config show            # Show configuration
 ```
 
-This installs the Stop hook into `~/.claude/settings.json`, launches a real-time TUI dashboard, and starts monitoring. Press `q` to quit (hooks are automatically removed).
+## Configuration
 
-### Stop monitoring
-
-```bash
-pair stop                     # Remove hooks
-```
-
-### Quick status check
-
-```bash
-pair status                   # Show hook status and recent session info
-```
-
-### One-shot review
-
-```bash
-pair review                   # Codex reviews current git diff (no hooks needed)
-```
-
-### Generate report
-
-```bash
-pair report                   # Markdown report from most recent session
-pair report --session <id>    # Report for a specific session
-```
-
-### Configuration
-
-```bash
-pair config show              # Show current config
-pair config set maxCycles 10  # Set max review cycles (default: 5)
-pair config set codexTimeout 600000  # Codex timeout in ms (default: 300000)
-pair config set codexModel gpt-4.1   # Override Codex model
-```
-
-Config is stored at `~/.claude-codex-pair/config.json`.
-
-## Configuration Options
+Config at `~/.claude-codex-pair/config.json`:
 
 | Key | Default | Description |
 |-----|---------|-------------|
@@ -95,21 +151,44 @@ Config is stored at `~/.claude-codex-pair/config.json`.
 | `codexModel` | `null` | Override Codex model (null = default) |
 | `codexTimeout` | `300000` | Codex call timeout in ms |
 | `logDir` | `~/.claude-codex-pair/sessions` | Session log directory |
-| `targetSessions` | `null` | Only review these sessions/projects (null = all) |
+| `targetSessions` | `null` | Only review these sessions/projects |
+
+## Architecture
+
+```
+app/PairApp/          # Native macOS app (Swift, SwiftUI, SwiftTerm)
+├── PairWindowView    # Split layout: terminal + Codex panel
+├── SessionManager    # Multi-session PTY management
+├── CodexPanelView    # Review status, feedback, history
+├── ScratchpadView    # Draft prompts before sending
+├── IPCServer         # Unix socket (send_input, read_screen, send_key)
+├── AuthChecker       # Claude + Codex auth verification
+├── ThemeManager      # Devbar / Ghostty color switching
+├── GhosttyConfig     # Parse ~/.config/ghostty/config
+├── ShellIntegration  # ZDOTDIR trick for zsh
+└── GhosttyBridge     # Optional Metal GPU rendering
+
+src/                  # Node.js hook system
+├── monitor/
+│   ├── hook-handler  # Stop hook → Codex review → feedback
+│   ├── permission-handler  # Codex-gated tool approval
+│   └── transcript    # Parse Claude JSONL transcripts
+├── codex/
+│   ├── client        # Spawn codex exec --json (streaming)
+│   └── prompt-builder # Review + respond prompts
+└── shared/
+    ├── pair-terminal # IPC client for PairApp
+    └── rules.md      # Shared Claude↔Codex alignment
+```
 
 ## Safety
 
-- **Codex is always read-only** — `codex exec -s read-only` ensures Codex can never modify files
-- **Max cycle limit** — prevents infinite feedback loops (default 5, configurable)
-- **Graceful degradation** — if Codex fails, times out, or isn't installed, Claude proceeds normally
-- **Reversible hooks** — `pair start` adds hooks; quitting the TUI or `pair stop` removes them cleanly
-- **Permission gating** — Codex reviews Write/Edit/Bash requests, auto-approves reads, blocks dangerous operations
-- **Ghostty integration** — feedback is typed into Claude's terminal as real user input (falls back to hook mechanism)
-
-## Session Logs
-
-Interactions are logged as JSONL at `~/.claude-codex-pair/sessions/<session_id>.jsonl`. Use `pair report` to generate a readable markdown summary.
+- **Codex is read-only** — `codex exec -s read-only`, can never modify files
+- **Max cycle limit** — prevents infinite feedback loops (default 5)
+- **Graceful degradation** — Codex errors auto-approve, never block Claude
+- **Socket permissions** — IPC restricted to current user (`chmod 0o600`)
+- **No telemetry** — no analytics, no network calls beyond Claude/Codex CLIs
 
 ## License
 
-MIT
+MIT — Copyright (c) 2026 Yury Tspar
