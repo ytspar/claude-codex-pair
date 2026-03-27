@@ -9,16 +9,20 @@ struct PairWindowView: View {
     @State private var authChecked = false
 
     var body: some View {
-        if !authChecked && sessionManager.sessions.isEmpty {
-            // Show auth check on first launch
-            ZStack {
-                themeManager.bg
-                AuthStatusView {
-                    authChecked = true
+        ZStack {
+            mainView
+
+            // Auth overlay on first launch
+            if !authChecked && sessionManager.sessions.isEmpty {
+                ZStack {
+                    themeManager.bg
+                    AuthStatusView {
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            authChecked = true
+                        }
+                    }
                 }
             }
-        } else {
-            mainView
         }
     }
 
@@ -42,16 +46,8 @@ struct PairWindowView: View {
                     }
 
                     if sessionManager.sessions.isEmpty {
-                        ZStack {
-                            themeManager.bg
-                            EmptyTerminalView(onNewSession: promptNewSession)
-                        }
-                        .onAppear {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                if sessionManager.sessions.isEmpty {
-                                    promptNewSession()
-                                }
-                            }
+                        ProjectPickerView { path in
+                            sessionManager.createSession(cwd: path)
                         }
                     } else if let active = sessionManager.activeSession {
                         TerminalContainerView(session: active)
@@ -108,22 +104,6 @@ struct PairWindowView: View {
         .coordinateSpace(name: "window")
         .background(themeManager.bg)
         .background(SessionShortcutButtons(sessionManager: sessionManager))
-    }
-
-    private func promptNewSession() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Launch Claude"
-        panel.message = "Choose a project directory for Claude Code"
-        panel.directoryURL = URL(fileURLWithPath: NSHomeDirectory() + "/git")
-
-        panel.begin { response in
-            if response == .OK, let url = panel.url {
-                sessionManager.createSession(cwd: url.path)
-            }
-        }
     }
 }
 
