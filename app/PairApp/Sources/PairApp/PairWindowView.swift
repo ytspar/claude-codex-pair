@@ -7,7 +7,6 @@ struct PairWindowView: View {
     @State private var isDragging = false
     @GestureState private var dragOffset: CGFloat = 0
     @State private var authChecked = false
-    @State private var showProjectPicker = false
 
     var body: some View {
         ZStack {
@@ -44,7 +43,7 @@ struct PairWindowView: View {
                             activeId: sessionManager.activeSessionId,
                             onSelect: { sessionManager.activeSessionId = $0 },
                             onClose: { sessionManager.removeSession($0) },
-                            onNew: { showProjectPicker = true }
+                            onNew: { sessionManager.showProjectPicker = true }
                         )
                         // Spacing between tabs and terminal
                         Spacer().frame(height: 6)
@@ -60,10 +59,10 @@ struct PairWindowView: View {
                         }
 
                         // Project picker overlay
-                        if sessionManager.sessions.isEmpty || showProjectPicker {
+                        if sessionManager.sessions.isEmpty || sessionManager.showProjectPicker {
                             ProjectPickerView { path in
                                 sessionManager.createSession(cwd: path)
-                                showProjectPicker = false
+                                sessionManager.showProjectPicker = false
                             }
                         }
                     }

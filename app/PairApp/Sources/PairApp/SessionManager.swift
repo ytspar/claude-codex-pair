@@ -5,6 +5,7 @@ class SessionManager: ObservableObject {
     static let shared = SessionManager()
 
     @Published var sessions: [PairSession] = []
+    @Published var showProjectPicker = false
     @Published var activeSessionId: String? {
         didSet {
             PairLog.info("Active session changed: \(oldValue ?? "nil") → \(activeSessionId ?? "nil")")

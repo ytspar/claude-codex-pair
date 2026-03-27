@@ -144,18 +144,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func newSession() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Launch Claude"
-        panel.message = "Choose a directory for the new Claude session"
-        panel.directoryURL = URL(fileURLWithPath: FileManager.default.homeDirectoryForCurrentUser.path + "/git")
-
-        panel.begin { response in
-            if response == .OK, let url = panel.url {
-                SessionManager.shared.createSession(cwd: url.path)
-            }
-        }
+        SessionManager.shared.showProjectPicker = true
     }
 }
