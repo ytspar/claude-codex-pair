@@ -16,10 +16,14 @@ class ClaudeMonitor: ObservableObject {
     private var reviewInProgress = false
 
     func start() {
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.poll()
+        // Must schedule on main RunLoop for Timer to fire
+        DispatchQueue.main.async { [weak self] in
+            self?.pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                self?.poll()
+            }
+            RunLoop.main.add(self!.pollTimer!, forMode: .common)
+            PairLog.info("ClaudeMonitor started (polling every 1s)")
         }
-        PairLog.info("ClaudeMonitor started (polling every 1s)")
     }
 
     func stop() {
@@ -27,9 +31,14 @@ class ClaudeMonitor: ObservableObject {
         pollTimer = nil
     }
 
+    private var pollCount = 0
     private func poll() {
+        pollCount += 1
+        if pollCount % 10 == 1 {
+            PairLog.info("Poll #\(pollCount), sessions=\(SessionManager.shared.sessions.count), active=\(isClaudeActive)")
+        }
         guard let session = SessionManager.shared.activeSession,
-              let surface = session.ghosttyView?.surface else {
+              session.ghosttyView?.surface != nil else {
             if isClaudeActive {
                 DispatchQueue.main.async {
                     self.isClaudeActive = false
@@ -39,8 +48,8 @@ class ClaudeMonitor: ObservableObject {
             return
         }
 
-        // Read current screen content
-        let screenText = readScreen(surface: surface)
+        // Read screen on main thread (NSView access)
+        let screenText = readScreen(surface: session.ghosttyView!.surface!)
         let currentHash = screenText.hashValue
 
         if currentHash != lastScreenHash {
@@ -69,18 +78,24 @@ class ClaudeMonitor: ObservableObject {
         }
     }
 
+    /// Read screen by using macOS accessibility to get the terminal text.
+    /// ghostty_surface_read_text needs complex selection setup, so we use
+    /// the NSView's accessibility value instead.
     private func readScreen(surface: ghostty_surface_t) -> String {
-        var text = ghostty_text_s()
-        let sel = ghostty_selection_s()
+        // Try accessibility API on the Ghostty NSView
         var result = ""
-
-        if ghostty_surface_read_text(surface, sel, &text) {
-            if let ptr = text.text, text.text_len > 0 {
-                result = String(cString: ptr)
+        let semaphore = DispatchSemaphore(value: 0)
+        DispatchQueue.main.async {
+            if let session = SessionManager.shared.activeSession,
+               let view = session.ghosttyView {
+                // Use the accessibility API to get terminal text
+                if let axValue = view.accessibilityValue() as? String {
+                    result = axValue
+                }
             }
-            ghostty_surface_free_text(surface, &text)
+            semaphore.signal()
         }
-
+        semaphore.wait()
         return result
     }
 
@@ -115,47 +130,81 @@ class ClaudeMonitor: ObservableObject {
         }
     }
 
-    private func callCodex(screenText: String, cwd: String) -> String? {
-        let lastLines = screenText.split(separator: "\n").suffix(30).joined(separator: "\n")
-
-        let prompt = """
-        You are reviewing a Claude Code session. Claude has paused. Here is the recent terminal output:
-
-        \(lastLines)
-
-        If Claude asked a question, answer it. Choose the most thorough option.
-        If Claude finished work, say APPROVE if done, or give specific feedback.
-        Be concise. Your response will be typed into Claude's terminal as user input.
-        """
-
-        let codexPaths = ["/usr/local/bin/codex", "/opt/homebrew/bin/codex"]
+    private func findCodex() -> String? {
+        let paths = ["/usr/local/bin/codex", "/opt/homebrew/bin/codex"]
         let nvmDir = FileManager.default.homeDirectoryForCurrentUser.path + "/.nvm/versions/node"
-        var allPaths = codexPaths
+        var allPaths = paths
         if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmDir) {
             for v in versions.sorted().reversed() {
                 allPaths.append("\(nvmDir)/\(v)/bin/codex")
             }
         }
+        return allPaths.first(where: { FileManager.default.fileExists(atPath: $0) })
+    }
 
-        guard let codexPath = allPaths.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
+    private func callCodex(screenText: String, cwd: String) -> String? {
+        let lastLines = screenText.split(separator: "\n").suffix(40).joined(separator: "\n")
+
+        let prompt = """
+        You are acting as the human operator for Claude Code. Claude has paused. \
+        Here is the terminal output:
+
+        \(lastLines)
+
+        If Claude asked a question, answer it directly and concisely. \
+        If Claude offers options, pick the most thorough one. \
+        If Claude finished work, reply with just: APPROVE \
+        Only output the text to type into Claude. No explanation, no metadata.
+        """
+
+        guard let codexPath = findCodex() else {
             PairLog.error("Codex not found")
             return nil
         }
 
         let process = Process()
-        let pipe = Pipe()
+        let stdout = Pipe()
+        let stderr = Pipe()
         process.executableURL = URL(fileURLWithPath: codexPath)
         process.arguments = ["exec", "-s", "read-only", prompt]
         process.currentDirectoryURL = URL(fileURLWithPath: cwd)
-        process.standardOutput = pipe
-        process.standardError = pipe
+        process.standardOutput = stdout
+        process.standardError = stderr
         process.environment = ProcessInfo.processInfo.environment
 
         do {
             try process.run()
             process.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let data = stdout.fileHandleForReading.readDataToEndOfFile()
+            let raw = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+            // codex exec outputs the response text directly on stdout
+            // stderr has the metadata (session info, token count, etc.)
+            // Just return stdout, cleaned up
+            let cleaned = raw
+                .split(separator: "\n")
+                .filter { line in
+                    let l = line.trimmingCharacters(in: .whitespaces)
+                    // Skip empty lines and codex metadata
+                    return !l.isEmpty
+                        && !l.hasPrefix("OpenAI Codex")
+                        && !l.hasPrefix("workdir:")
+                        && !l.hasPrefix("model:")
+                        && !l.hasPrefix("provider:")
+                        && !l.hasPrefix("approval:")
+                        && !l.hasPrefix("sandbox:")
+                        && !l.hasPrefix("reasoning")
+                        && !l.hasPrefix("session id:")
+                        && !l.hasPrefix("tokens used")
+                        && !l.hasPrefix("--------")
+                        && !l.hasPrefix("user")
+                        && !l.hasPrefix("mcp startup:")
+                        && !l.hasPrefix("codex")
+                }
+                .joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            return cleaned.isEmpty ? nil : cleaned
         } catch {
             PairLog.error("Codex exec failed: \(error)")
             return nil
