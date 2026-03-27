@@ -14,45 +14,45 @@ struct AboutView: View {
             }
 
             Text("Pair")
-                .font(.custom(Theme.fontName, size: 28))
+                .font(.custom(Theme.fontName, size: 36))
                 .foregroundColor(themeManager.text)
 
             Text("Claude + Codex")
-                .font(Theme.mono)
+                .font(.custom(Theme.fontName, size: 18))
                 .foregroundColor(themeManager.accent)
 
-            Text("v0.1.0 · March 2026")
-                .font(Theme.monoSmall)
+            Text("v0.1.0 · March 26, 2026")
+                .font(.custom(Theme.fontName, size: 14))
                 .foregroundColor(themeManager.textMuted)
 
-            Divider().frame(width: 200)
+            Divider().frame(width: 240)
 
             Text("A native macOS app that pairs Claude Code with OpenAI Codex for autonomous code review and task completion. Codex reviews Claude's work, provides feedback, answers questions, and ensures tasks are completed thoroughly.")
-                .font(Theme.monoTiny)
+                .font(.custom(Theme.fontName, size: 13))
                 .foregroundColor(themeManager.textSecondary)
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: 320)
+                .frame(maxWidth: 360)
 
-            Divider().frame(width: 200)
+            Divider().frame(width: 240)
 
-            VStack(spacing: 4) {
+            VStack(spacing: 6) {
                 Link("github.com/ytspar/claude-codex-pair", destination: URL(string: "https://github.com/ytspar/claude-codex-pair")!)
-                    .font(Theme.monoTiny)
+                    .font(.custom(Theme.fontName, size: 13))
                     .foregroundColor(themeManager.accent)
 
-                Text("Created by Yury Tspar")
-                    .font(Theme.monoTiny)
+                Text("Created by ytspar")
+                    .font(.custom(Theme.fontName, size: 13))
                     .foregroundColor(themeManager.textMuted)
 
                 Text("MIT License")
-                    .font(Theme.monoTiny)
+                    .font(.custom(Theme.fontName, size: 12))
                     .foregroundColor(themeManager.textMuted)
             }
 
-            Spacer().frame(height: 8)
+            Spacer().frame(height: 12)
         }
-        .padding(24)
-        .frame(width: 400, height: 480)
+        .padding(28)
+        .frame(width: 440, height: 540)
         .background(themeManager.bg)
     }
 }
@@ -60,7 +60,7 @@ struct AboutView: View {
 /// Shows the About window.
 func showAboutWindow() {
     let window = NSWindow(
-        contentRect: NSRect(x: 0, y: 0, width: 400, height: 480),
+        contentRect: NSRect(x: 0, y: 0, width: 440, height: 540),
         styleMask: [.titled, .closable],
         backing: .buffered,
         defer: false
