@@ -44,7 +44,7 @@ class ClaudeMonitor: ObservableObject {
 
         if pollCount % 10 == 1 {
             let hasSurface = SessionManager.shared.activeSession?.ghosttyView?.surface != nil
-            PairLog.info("Poll #\(pollCount), sessions=\(sessionCount), surface=\(hasSurface), active=\(isClaudeActive), status=\(status)")
+            PairLog.info("Poll #\(pollCount), sessions=\(sessionCount), surface=\(hasSurface), active=\(isClaudeActive), status=\(status), changes=\(changeCount), stable=\(stableCount)")
         }
 
         // No sessions = idle
@@ -105,25 +105,32 @@ class ClaudeMonitor: ObservableObject {
         }
     }
 
-    /// Read screen by using macOS accessibility to get the terminal text.
-    /// ghostty_surface_read_text needs complex selection setup, so we use
-    /// the NSView's accessibility value instead.
+    /// Read screen content. Uses Ghostty surface inspector text if available,
+    /// falls back to accessibility API. Normalizes to strip cursor artifacts.
     private func readScreen(surface: ghostty_surface_t) -> String {
-        // Try accessibility API on the Ghostty NSView
         var result = ""
         let semaphore = DispatchSemaphore(value: 0)
         DispatchQueue.main.async {
             if let session = SessionManager.shared.activeSession,
                let view = session.ghosttyView {
-                // Use the accessibility API to get terminal text
-                if let axValue = view.accessibilityValue() as? String {
+                // Try accessibility value
+                if let axValue = view.accessibilityValue() as? String, !axValue.isEmpty {
                     result = axValue
                 }
             }
             semaphore.signal()
         }
         semaphore.wait()
-        return result
+
+        // Normalize: strip trailing whitespace per line, remove cursor artifacts
+        // This prevents hash changes from cursor blinks
+        let normalized = result
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return normalized
     }
 
     private func triggerCodexReview(screenText: String, session: PairSession) {
