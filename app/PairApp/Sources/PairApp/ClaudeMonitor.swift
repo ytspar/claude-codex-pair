@@ -81,7 +81,10 @@ class ClaudeMonitor: ObservableObject {
             }
         } else {
             stableCount += 1
-            if stableCount == stableThreshold && changeCount >= 3 && !reviewInProgress && !lastWasApprove {
+            // Require >= 10 screen changes before reviewing.
+            // Welcome screen = ~4 changes. Claude working on a task = 10-50+ changes.
+            // This prevents premature review on loading/idle screens.
+            if stableCount == stableThreshold && changeCount >= 10 && !reviewInProgress && !lastWasApprove {
                 PairLog.info("Claude idle \(stableThreshold)s after \(changeCount) changes, reviewing")
                 changeCount = 0
                 DispatchQueue.main.async {
