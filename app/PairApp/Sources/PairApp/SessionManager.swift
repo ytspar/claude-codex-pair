@@ -77,8 +77,14 @@ class PairSession: Identifiable, ObservableObject {
         for row in 0..<terminal.rows {
             var line = ""
             for col in 0..<terminal.cols {
-                if let ch = terminal.getCharacter(col: col, row: row) {
-                    line.append(ch)
+                // getCharData returns the full cell data including the character
+                if let charData = terminal.getCharData(col: col, row: row) {
+                    let ch = terminal.getCharacter(for: charData)
+                    if ch != "\0" {
+                        line.append(ch)
+                    } else {
+                        line.append(" ")
+                    }
                 } else {
                     line.append(" ")
                 }
