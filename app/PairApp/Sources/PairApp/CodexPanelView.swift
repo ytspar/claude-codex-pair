@@ -38,8 +38,8 @@ struct CodexPanelView: View {
                         .foregroundColor(tm.textMuted)
                 }
                 Spacer()
-                if store.state.cycle > 0 {
-                    Text("CYCLE \(store.state.cycle)")
+                if monitor.cycleCount > 0 {
+                    Text("CYCLE \(monitor.cycleCount)")
                         .font(Theme.monoTiny)
                         .foregroundColor(tm.textSecondary)
                 }
@@ -90,31 +90,31 @@ struct CodexPanelView: View {
                         }
                     }
 
-                    // History card
-                    if !store.interactions.isEmpty {
-                        CardView(title: "HISTORY") {
-                            VStack(alignment: .leading, spacing: 6) {
-                                ForEach(store.interactions) { entry in
-                                    HStack(spacing: 8) {
-                                        Text("#\(entry.cycle)")
-                                            .font(Theme.monoTiny)
-                                            .foregroundColor(tm.textMuted)
-                                            .frame(width: 24, alignment: .trailing)
-                                        Text(entry.decision)
-                                            .font(Theme.monoTiny)
-                                            .fontWeight(.bold)
-                                            .foregroundColor(decisionColor(entry.decision))
-                                        Text("\(entry.durationSec)s")
-                                            .font(Theme.monoTiny)
-                                            .foregroundColor(tm.textMuted)
-                                        Spacer()
-                                    }
-                                    if !entry.summary.isEmpty {
-                                        Text(entry.summary)
-                                            .font(Theme.monoTiny)
-                                            .foregroundColor(tm.textSecondary)
-                                            .lineLimit(2)
-                                            .padding(.leading, 32)
+                    // Live timeline from ClaudeMonitor
+                    if !monitor.timeline.isEmpty {
+                        CardView(title: "TIMELINE") {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(monitor.timeline) { entry in
+                                    HStack(alignment: .top, spacing: 8) {
+                                        Circle()
+                                            .fill(timelineColor(entry.event))
+                                            .frame(width: 6, height: 6)
+                                            .padding(.top, 4)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            HStack(spacing: 6) {
+                                                Text(entry.event)
+                                                    .font(Theme.monoTiny)
+                                                    .fontWeight(.bold)
+                                                    .foregroundColor(timelineColor(entry.event))
+                                                Text(timeAgo(entry.time))
+                                                    .font(Theme.monoTiny)
+                                                    .foregroundColor(tm.textMuted)
+                                            }
+                                            Text(entry.detail)
+                                                .font(Theme.monoTiny)
+                                                .foregroundColor(tm.textSecondary)
+                                                .lineLimit(3)
+                                        }
                                     }
                                 }
                             }
@@ -165,6 +165,23 @@ struct CodexPanelView: View {
         case "error": return "Codex encountered an error"
         default: return ""
         }
+    }
+
+    func timelineColor(_ event: String) -> Color {
+        switch event {
+        case "APPROVED": return tm.accent
+        case "FEEDBACK": return tm.warning
+        case "REVIEWING": return tm.cyan
+        default: return tm.textMuted
+        }
+    }
+
+    func timeAgo(_ date: Date) -> String {
+        let s = -date.timeIntervalSinceNow
+        if s < 5 { return "just now" }
+        if s < 60 { return "\(Int(s))s ago" }
+        if s < 3600 { return "\(Int(s / 60))m ago" }
+        return "\(Int(s / 3600))h ago"
     }
 
     func statusLabel(_ s: String) -> String {

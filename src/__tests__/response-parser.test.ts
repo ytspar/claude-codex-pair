@@ -33,4 +33,10 @@ describe("parseCodexResponse", () => {
 		const result = parseCodexResponse("Everything looks great, well done.");
 		expect(result.decision).toBe("APPROVE");
 	});
+
+	it("infers CONTEXT when response mentions missing information", () => {
+		const result = parseCodexResponse("I'm missing the relevant config files to review this properly.");
+		expect(result.decision).toBe("CONTEXT");
+		expect(result.response).toContain("missing");
+	});
 });

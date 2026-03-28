@@ -6,6 +6,16 @@ class ClaudeMonitor: ObservableObject {
     static let shared = ClaudeMonitor()
 
     @Published var status: String = "idle"
+    @Published var timeline: [TimelineEntry] = []
+    @Published var lastCodexResponse: String = ""
+    @Published var cycleCount: Int = 0
+
+    struct TimelineEntry: Identifiable {
+        let id = UUID()
+        let time: Date
+        let event: String
+        let detail: String
+    }
 
     private let pollQueue = DispatchQueue(label: "claude-monitor", qos: .userInitiated)
     private var dispatchTimer: DispatchSourceTimer?
@@ -27,6 +37,14 @@ class ClaudeMonitor: ObservableObject {
     }
 
     func stop() { dispatchTimer?.cancel(); dispatchTimer = nil }
+
+    private func addTimeline(_ event: String, _ detail: String) {
+        let entry = TimelineEntry(time: Date(), event: event, detail: detail)
+        DispatchQueue.main.async {
+            self.timeline.insert(entry, at: 0)
+            if self.timeline.count > 50 { self.timeline = Array(self.timeline.prefix(50)) }
+        }
+    }
 
     private func poll() {
         pollCount += 1
@@ -66,6 +84,10 @@ class ClaudeMonitor: ObservableObject {
             if stableCount == stableThreshold && changeCount >= 3 && !reviewInProgress && !lastWasApprove {
                 PairLog.info("Claude idle \(stableThreshold)s after \(changeCount) changes, reviewing")
                 changeCount = 0
+                DispatchQueue.main.async {
+                    self.cycleCount += 1
+                    self.addTimeline("REVIEWING", "Claude idle, calling Codex (cycle \(self.cycleCount))")
+                }
                 triggerCodexReview(screenText: screenText, session: session)
             }
         }
@@ -85,13 +107,18 @@ class ClaudeMonitor: ObservableObject {
                     return
                 }
                 PairLog.info("Codex: \(response.prefix(150))")
+                self?.lastCodexResponse = response
+
                 if response.uppercased().contains("APPROVE") {
                     self?.lastWasApprove = true
                     self?.status = "approved"
+                    self?.addTimeline("APPROVED", "Codex approved Claude's work")
                 } else {
                     self?.status = "feedback"
-                    session.injectInput(response)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    self?.addTimeline("FEEDBACK", String(response.prefix(200)))
+                    // Send response + Enter so Claude receives it as submitted input
+                    session.injectInput(response + "\n")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                         self?.status = "watching"
                         self?.stableCount = 0
                     }
