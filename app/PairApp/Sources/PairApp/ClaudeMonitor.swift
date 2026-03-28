@@ -16,6 +16,7 @@ class ClaudeMonitor: ObservableObject {
     private var reviewInProgress = false
     private var lastWasApprove = false
     private var lastReviewedHash = 0
+    private var changeCount = 0  // How many screen changes since last stable
 
     private let pollQueue = DispatchQueue(label: "claude-monitor", qos: .userInitiated)
     private var dispatchTimer: DispatchSourceTimer?
@@ -75,7 +76,8 @@ class ClaudeMonitor: ObservableObject {
             // Screen changed — Claude is active
             lastScreenHash = currentHash
             stableCount = 0
-            lastWasApprove = false  // New content = reset approval
+            changeCount += 1
+            lastWasApprove = false
             if !isClaudeActive {
                 DispatchQueue.main.async {
                     self.isClaudeActive = true
@@ -86,13 +88,18 @@ class ClaudeMonitor: ObservableObject {
             // Screen unchanged
             stableCount += 1
 
-            if stableCount == stableThreshold && !reviewInProgress && !lastWasApprove {
+            // Only trigger review if:
+            // 1. Screen was actively changing (changeCount >= 3 = Claude was working, not just a keystroke)
+            // 2. Now stable for threshold seconds
+            // 3. Not already reviewed or approved
+            if stableCount == stableThreshold && changeCount >= 3 && !reviewInProgress && !lastWasApprove {
                 // Claude stopped producing output — trigger review
                 DispatchQueue.main.async {
                     self.isClaudeActive = false
                     self.status = "reviewing"
                 }
-                PairLog.info("Claude idle for \(stableThreshold)s, triggering Codex review")
+                PairLog.info("Claude idle for \(stableThreshold)s after \(changeCount) changes, triggering Codex review")
+                changeCount = 0
                 triggerCodexReview(screenText: screenText, session: session)
             }
         }
