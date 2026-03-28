@@ -14,16 +14,21 @@ class ClaudeMonitor: ObservableObject {
     private var stableCount = 0          // how many polls the screen hasn't changed
     private let stableThreshold = 5      // 5 polls (5 seconds) of no change = idle
     private var reviewInProgress = false
+    private var lastWasApprove = false
+    private var lastReviewedHash = 0
+
+    private let pollQueue = DispatchQueue(label: "claude-monitor", qos: .userInitiated)
+    private var dispatchTimer: DispatchSourceTimer?
 
     func start() {
-        // Must schedule on main RunLoop for Timer to fire
-        DispatchQueue.main.async { [weak self] in
-            self?.pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-                self?.poll()
-            }
-            RunLoop.main.add(self!.pollTimer!, forMode: .common)
-            PairLog.info("ClaudeMonitor started (polling every 1s)")
+        let timer = DispatchSource.makeTimerSource(queue: pollQueue)
+        timer.schedule(deadline: .now() + 1, repeating: 1.0)
+        timer.setEventHandler { [weak self] in
+            self?.poll()
         }
+        timer.resume()
+        self.dispatchTimer = timer
+        PairLog.info("ClaudeMonitor started (polling every 1s)")
     }
 
     func stop() {
@@ -34,28 +39,43 @@ class ClaudeMonitor: ObservableObject {
     private var pollCount = 0
     private func poll() {
         pollCount += 1
+        let sessionCount = SessionManager.shared.sessions.count
+
         if pollCount % 10 == 1 {
-            PairLog.info("Poll #\(pollCount), sessions=\(SessionManager.shared.sessions.count), active=\(isClaudeActive)")
+            let hasSurface = SessionManager.shared.activeSession?.ghosttyView?.surface != nil
+            PairLog.info("Poll #\(pollCount), sessions=\(sessionCount), surface=\(hasSurface), active=\(isClaudeActive), status=\(status)")
         }
-        guard let session = SessionManager.shared.activeSession,
-              session.ghosttyView?.surface != nil else {
-            if isClaudeActive {
+
+        // No sessions = idle
+        guard let session = SessionManager.shared.activeSession else {
+            if status != "idle" {
                 DispatchQueue.main.async {
                     self.isClaudeActive = false
-                    self.status = SessionManager.shared.sessions.isEmpty ? "idle" : "watching"
+                    self.status = "idle"
                 }
             }
             return
         }
 
-        // Read screen on main thread (NSView access)
-        let screenText = readScreen(surface: session.ghosttyView!.surface!)
+        // Session exists but surface not ready yet = watching (waiting for init)
+        guard let surface = session.ghosttyView?.surface else {
+            if status != "watching" && sessionCount > 0 {
+                DispatchQueue.main.async {
+                    self.status = "watching"
+                }
+            }
+            return
+        }
+
+        // Read screen
+        let screenText = readScreen(surface: surface)
         let currentHash = screenText.hashValue
 
         if currentHash != lastScreenHash {
             // Screen changed — Claude is active
             lastScreenHash = currentHash
             stableCount = 0
+            lastWasApprove = false  // New content = reset approval
             if !isClaudeActive {
                 DispatchQueue.main.async {
                     self.isClaudeActive = true
@@ -66,7 +86,7 @@ class ClaudeMonitor: ObservableObject {
             // Screen unchanged
             stableCount += 1
 
-            if stableCount == stableThreshold && isClaudeActive && !reviewInProgress {
+            if stableCount == stableThreshold && !reviewInProgress && !lastWasApprove {
                 // Claude stopped producing output — trigger review
                 DispatchQueue.main.async {
                     self.isClaudeActive = false
@@ -115,10 +135,16 @@ class ClaudeMonitor: ObservableObject {
                 }
 
                 PairLog.info("Codex: \(response.prefix(150))")
-                self?.status = "feedback"
 
-                // Type response into Claude
-                session.injectInput(response)
+                if response.uppercased().contains("APPROVE") {
+                    self?.lastWasApprove = true
+                    self?.status = "approved"
+                    // Don't type APPROVE into Claude
+                } else {
+                    self?.status = "feedback"
+                    // Type feedback into Claude
+                    session.injectInput(response)
+                }
 
                 // Reset so we watch for the next cycle
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
