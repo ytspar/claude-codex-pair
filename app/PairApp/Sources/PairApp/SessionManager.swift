@@ -67,7 +67,9 @@ class PairSession: Identifiable, ObservableObject {
     }
 
     func injectInput(_ text: String) {
-        terminalView?.send(txt: text)
+        // Replace \n with \r for terminal submission (Enter = carriage return)
+        let termText = text.replacingOccurrences(of: "\n", with: "\r")
+        terminalView?.send(txt: termText)
     }
 
     /// Read the visible terminal screen as plain text.

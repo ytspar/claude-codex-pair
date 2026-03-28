@@ -119,7 +119,7 @@ class ClaudeMonitor: ObservableObject {
                 } else {
                     self?.status = "feedback"
                     self?.addTimeline("FEEDBACK", String(response.prefix(200)))
-                    // Send response + Enter so Claude receives it as submitted input
+                    // Send response (injectInput handles \n → \r conversion)
                     session.injectInput(response + "\n")
                     DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                         self?.status = "watching"
