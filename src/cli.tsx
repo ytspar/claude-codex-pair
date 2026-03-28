@@ -143,19 +143,57 @@ program
 		const releaseBinary = path.resolve(import.meta.dirname, "..", "app", "PairApp", ".build", "release", "PairApp");
 		const binary = fs.existsSync(releaseBinary) ? releaseBinary : appBinary;
 
+		// Check if binary needs rebuilding
+		const appDir = path.resolve(import.meta.dirname, "..", "app", "PairApp");
+		const sourcesDir = path.join(appDir, "Sources");
+		const { execFileSync, execFile: ef2 } = await import("node:child_process");
+
+		if (fs.existsSync(sourcesDir)) {
+			const binaryExists = fs.existsSync(binary);
+			let needsBuild = !binaryExists;
+
+			if (binaryExists) {
+				try {
+					const newer = execFileSync("find", [sourcesDir, "-name", "*.swift", "-newer", binary], { encoding: "utf-8" });
+					if (newer.trim().length > 0) needsBuild = true;
+				} catch { /* ignore */ }
+			}
+
+			if (needsBuild) {
+				console.log(dim("Building PairApp (sources changed)..."));
+				try {
+					execFileSync("swift", ["build"], { cwd: appDir, stdio: "inherit" });
+					console.log(green("✓ Build complete"));
+					// Update /Applications copy if it exists
+					if (fs.existsSync("/Applications/Pair.app/Contents/MacOS/Pair")) {
+						const built = fs.existsSync(releaseBinary) ? releaseBinary : appBinary;
+						fs.copyFileSync(built, "/Applications/Pair.app/Contents/MacOS/Pair");
+						try { execFileSync("codesign", ["--force", "--deep", "--sign", "-", "/Applications/Pair.app"]); } catch { /* */ }
+						console.log(dim("  Updated /Applications/Pair.app"));
+					}
+				} catch {
+					console.error(red("Build failed"));
+					process.exit(1);
+				}
+			}
+		}
+
 		// Check if PairApp is already running
 		const { isPairTerminalRunning, sendInputViaPairTerminal } = await import("./shared/pair-terminal.js");
 		const appRunning = await isPairTerminalRunning();
 
 		if (!appRunning) {
-			// Launch PairApp
-			if (!fs.existsSync(binary)) {
+			if (fs.existsSync("/Applications/Pair.app")) {
+				console.log(dim("Starting Pair.app..."));
+				ef2("open", ["/Applications/Pair.app"], () => {});
+			} else if (fs.existsSync(binary)) {
+				console.log(dim("Starting PairApp..."));
+				const child = spawn(binary, [], { stdio: "ignore", detached: true });
+				child.unref();
+			} else {
 				console.error(red("PairApp not found. Build with: cd app/PairApp && swift build"));
 				process.exit(1);
 			}
-			console.log(dim("Starting PairApp..."));
-			const child = spawn(binary, [], { stdio: "ignore", detached: true });
-			child.unref();
 
 			// Wait for IPC to be ready
 			for (let i = 0; i < 20; i++) {
