@@ -1,11 +1,12 @@
 // swift-tools-version: 5.9
 import PackageDescription
 
-let ghosttyFrameworkPath = "Frameworks/GhosttyKit.xcframework/macos-arm64_x86_64"
-
 let package = Package(
     name: "PairApp",
     platforms: [.macOS(.v14)],
+    dependencies: [
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.2.0"),
+    ],
     targets: [
         .testTarget(
             name: "PairAppTests",
@@ -13,27 +14,12 @@ let package = Package(
         ),
         .executableTarget(
             name: "PairApp",
+            dependencies: [
+                .product(name: "SwiftTerm", package: "SwiftTerm"),
+            ],
             path: "Sources/PairApp",
             resources: [
                 .copy("Resources"),
-            ],
-            swiftSettings: [
-                .unsafeFlags(["-I", ghosttyFrameworkPath + "/Headers"]),
-            ],
-            linkerSettings: [
-                .unsafeFlags(["-L", ghosttyFrameworkPath]),
-                .linkedLibrary("ghostty"),
-                .linkedLibrary("z"),
-                .linkedLibrary("c++"),
-                .linkedFramework("Carbon"),
-                .linkedFramework("Metal"),
-                .linkedFramework("MetalKit"),
-                .linkedFramework("CoreGraphics"),
-                .linkedFramework("QuartzCore"),
-                .linkedFramework("CoreText"),
-                .linkedFramework("IOSurface"),
-                .linkedFramework("Foundation"),
-                .linkedFramework("AppKit"),
             ]
         ),
     ]

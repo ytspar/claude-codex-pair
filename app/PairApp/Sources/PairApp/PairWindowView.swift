@@ -56,7 +56,7 @@ struct PairWindowView: View {
                     ZStack {
                         // Keep ALL terminal views alive
                         ForEach(sessionManager.sessions) { session in
-                            GhosttySessionView(session: session)
+                            TerminalContainerView(session: session)
                                 .opacity(!sessionManager.showProjectPicker && session.id == sessionManager.activeSessionId ? 1 : 0)
                                 .allowsHitTesting(!sessionManager.showProjectPicker && session.id == sessionManager.activeSessionId)
                         }

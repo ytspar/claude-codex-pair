@@ -1,5 +1,4 @@
 import SwiftUI
-import GhosttyKit
 
 struct ScratchpadView: View {
     @ObservedObject private var themeManager = ThemeManager.shared
@@ -76,8 +75,8 @@ struct ScratchpadView: View {
             PairLog.info("Scratchpad sent \(prompt.count) chars to \(session.id)")
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                if let ghosttyView = session.ghosttyView {
-                    ghosttyView.window?.makeFirstResponder(ghosttyView)
+                if let termView = session.terminalView {
+                    termView.window?.makeFirstResponder(termView)
                 }
             }
         }

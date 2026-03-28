@@ -1,5 +1,4 @@
 import Foundation
-import GhosttyKit
 
 /// Unix socket IPC server for hook-handler communication.
 class IPCServer {
@@ -130,22 +129,13 @@ class IPCServer {
             guard let surfaceId = request.surface else {
                 return IPCResponse(ok: false, error: "Missing surface")
             }
-            guard let session = SessionManager.shared.findSession(surfaceId),
-                  let surface = session.ghosttyView?.surface else {
-                return IPCResponse(ok: false, error: "Session not found or no terminal")
+            guard let session = SessionManager.shared.findSession(surfaceId) else {
+                return IPCResponse(ok: false, error: "Session not found")
             }
-            // Read screen via Ghostty's read_text API
             var screenText = ""
             let semaphore = DispatchSemaphore(value: 0)
             DispatchQueue.main.async {
-                // Use ghostty_surface_read_text to get terminal content
-                var text = ghostty_text_s()
-                let sel = ghostty_selection_s()
-                if ghostty_surface_read_text(surface, sel, &text) {
-                    if let ptr = text.text, text.text_len > 0 {
-                        screenText = String(cString: ptr)
-                    }
-                }
+                screenText = session.readScreen()
                 semaphore.signal()
             }
             semaphore.wait()

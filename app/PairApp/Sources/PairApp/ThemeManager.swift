@@ -88,7 +88,7 @@ class ThemeManager: ObservableObject {
 
         // Send to all active sessions
         for session in SessionManager.shared.sessions {
-            session.ghosttyView?.sendPaste(osc)  // OSC sequences are fine via paste API
+            session.terminalView?.getTerminal().feed(text: osc)
         }
     }
 
