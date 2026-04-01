@@ -74,33 +74,32 @@ struct ToolbarTab: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            HStack(spacing: 6) {
-                if let icon = icon {
-                    Image(systemName: icon)
-                        .font(Theme.monoTiny)
-                        .foregroundColor(themeManager.accent)
-                } else {
-                    Circle()
-                        .fill(themeManager.accent)
-                        .frame(width: 6, height: 6)
-                }
-                Text(name)
-                    .font(Theme.monoSmall)
-                    .foregroundColor(isActive ? themeManager.text : themeManager.textSecondary)
-                    .lineLimit(1)
+            if let icon = icon {
+                Image(systemName: icon)
+                    .font(Theme.monoTiny)
+                    .foregroundColor(themeManager.accent)
+            } else {
+                Circle()
+                    .fill(themeManager.accent)
+                    .frame(width: 6, height: 6)
             }
-            .contentShape(Rectangle())
-            .onTapGesture(perform: onSelect)
+            Text(name)
+                .font(Theme.monoSmall)
+                .foregroundColor(isActive ? themeManager.text : themeManager.textSecondary)
+                .lineLimit(1)
 
-            if isActive || isHovered {
-                Image(systemName: "xmark")
-                    .font(.custom(Theme.fontName, size: 8))
-                    .foregroundColor(themeManager.textMuted)
-                    .frame(width: 16, height: 16)
-                    .contentShape(Rectangle())
-                    .onTapGesture(perform: onClose)
-            }
+            // Always reserve space for the close button to prevent layout shift
+            Image(systemName: "xmark")
+                .font(.custom(Theme.fontName, size: 8))
+                .foregroundColor(themeManager.textMuted)
+                .frame(width: 16, height: 16)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onClose)
+                .opacity(isActive || isHovered ? 1 : 0)
+                .allowsHitTesting(isActive || isHovered)
         }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(isActive ? themeManager.bgElevated : (isHovered ? themeManager.bg.opacity(0.5) : Color.clear))

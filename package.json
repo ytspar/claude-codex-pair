@@ -1,6 +1,9 @@
 {
   "name": "claude-codex-pair",
   "version": "0.1.0",
+  "license": "MIT",
+  "repository": "ytspar/claude-codex-pair",
+  "private": true,
   "description": "Codex monitors and reviews active Claude Code sessions, providing autonomous feedback and cross-model validation",
   "type": "module",
   "main": "./dist/cli.js",

@@ -26,6 +26,7 @@ class SessionManager: ObservableObject {
     func removeSession(_ id: String) {
         if let idx = sessions.firstIndex(where: { $0.id == id }) {
             sessions.remove(at: idx)
+            ClaudeMonitor.shared.removeSession(id)
             if activeSessionId == id { activeSessionId = sessions.first?.id }
         }
     }
@@ -52,6 +53,13 @@ class PairSession: Identifiable, ObservableObject {
     weak var terminalView: LocalProcessTerminalView?
     var currentDirectory: String
 
+    /// Tracks whether the last input was from the user (keyboard) or machine (Codex/IPC).
+    /// The monitor uses this to avoid reviewing while the user is composing a prompt.
+    enum InputSource { case user, machine }
+    var lastInputSource: InputSource = .user
+    /// Timestamp of last machine-injected input
+    var lastMachineInputTime: Date = .distantPast
+
     init(id: String, cwd: String) {
         self.id = id
         self.cwd = cwd
@@ -66,10 +74,64 @@ class PairSession: Identifiable, ObservableObject {
                           environment: envArray, execName: "claude", currentDirectory: cwd)
     }
 
+    private static let maxInjectionLength = 4000
+
     func injectInput(_ text: String) {
+        lastInputSource = .machine
+        lastMachineInputTime = Date()
+        // Sanitize: strip control characters (except newline), truncate length
+        var sanitized = String(text.prefix(Self.maxInjectionLength))
+        sanitized = sanitized.unicodeScalars.filter { $0 == "\n" || $0 == "\r" || ($0.value >= 0x20 && $0.value < 0x7F) || $0.value > 0x7F }.map(String.init).joined()
         // Replace \n with \r for terminal submission (Enter = carriage return)
-        let termText = text.replacingOccurrences(of: "\n", with: "\r")
+        let termText = sanitized.replacingOccurrences(of: "\n", with: "\r")
         terminalView?.send(txt: termText)
+    }
+
+    /// Paste text into the terminal without submitting (no trailing Enter).
+    /// Uses bracketed paste mode so multi-line text doesn't trigger early submission.
+    func pasteInput(_ text: String) {
+        lastInputSource = .user
+        // Bracketed paste: terminal treats content as pasted text, not typed keystrokes.
+        // This prevents newlines from being interpreted as Enter presses.
+        let escaped = "\u{1B}[200~\(text)\u{1B}[201~"
+        terminalView?.send(txt: escaped)
+    }
+
+    /// Send arrow key escape sequences for interactive selection prompts.
+    /// Claude Code uses TUI widgets where you arrow down to select, then Enter.
+    func sendArrowDown(_ count: Int = 1) {
+        for _ in 0..<count {
+            terminalView?.send(txt: "\u{1b}[B")  // ESC [ B = arrow down
+        }
+    }
+
+    func sendArrowUp(_ count: Int = 1) {
+        for _ in 0..<count {
+            terminalView?.send(txt: "\u{1b}[A")  // ESC [ A = arrow up
+        }
+    }
+
+    func sendEnter() {
+        terminalView?.send(txt: "\r")
+    }
+
+    func sendEscape() {
+        terminalView?.send(txt: "\u{1b}")
+    }
+
+    /// Select a numbered option in Claude's interactive prompts.
+    /// Detects the current selection (❯ marker) and arrows to the target.
+    func selectOption(_ optionNumber: Int) {
+        // Option 1 is usually the default (❯ is on it), so:
+        // Option 1 = just press Enter
+        // Option 2 = arrow down once + Enter
+        // Option 3 = arrow down twice + Enter
+        let arrowPresses = max(0, optionNumber - 1)
+        sendArrowDown(arrowPresses)
+        // Brief delay for the UI to update
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.sendEnter()
+        }
     }
 
     /// Read the visible terminal screen as plain text.

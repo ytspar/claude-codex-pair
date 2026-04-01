@@ -36,7 +36,7 @@ struct PairWindowView: View {
             HStack(spacing: 0) {
                 // Left: Terminal
                 VStack(spacing: 0) {
-                    // Toolbar — visible when sessions exist or picker is open
+                    // Toolbar  - visible when sessions exist or picker is open
                     if !sessionManager.sessions.isEmpty || sessionManager.showProjectPicker {
                         SessionToolbar(
                             sessions: sessionManager.sessions,
@@ -45,12 +45,20 @@ struct PairWindowView: View {
                             onSelect: { id in
                                 sessionManager.showProjectPicker = false
                                 sessionManager.activeSessionId = id
+                                ClaudeMonitor.shared.activeSessionChanged()
+                                // Focus the terminal after tab switch
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                                    if let session = SessionManager.shared.findSession(id),
+                                       let termView = session.terminalView {
+                                        termView.window?.makeFirstResponder(termView)
+                                    }
+                                }
                             },
                             onClose: { sessionManager.removeSession($0) },
                             onNew: { sessionManager.showProjectPicker = true },
                             onCloseBrowse: { sessionManager.showProjectPicker = false }
                         )
-                        Spacer().frame(height: 6)
+                        Spacer().frame(height: 0)
                     }
 
                     ZStack {
@@ -132,10 +140,10 @@ struct EmptyTerminalView: View {
     var body: some View {
         VStack(spacing: 24) {
             Image(systemName: "terminal")
-                .font(.custom(Theme.fontName, size: 56))
+                .font(.system(size: 56))
                 .foregroundColor(themeManager.textMuted)
             Text("Choose a project directory")
-                .font(.custom(Theme.fontName, size: 22))
+                .font(Theme.monoHeading)
                 .foregroundColor(themeManager.textSecondary)
             Text("Claude Code will launch in the selected directory")
                 .font(Theme.monoSmall)

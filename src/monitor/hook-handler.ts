@@ -1,30 +1,33 @@
 #!/usr/bin/env node
 /**
- * Hook handler — standalone script spawned by Claude Code's Stop hook.
+ * Hook handler  - standalone script spawned by Claude Code's Stop hook.
  *
  * Two modes:
- *   1. REVIEW — Claude finished working. Codex checks if the task is complete.
- *   2. RESPOND — Claude asked a question / wants input. Codex answers as the human.
+ *   1. REVIEW  - Claude finished working. Codex checks if the task is complete.
+ *   2. RESPOND  - Claude asked a question / wants input. Codex answers via hook block.
+ *
+ * All Codex responses are delivered via the hook block mechanism (Claude sees them
+ * as system-level messages). We never inject text into the terminal — the user
+ * must remain in control of the prompt at all times.
  */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { callCodex } from "../codex/client.js";
-import { buildReviewPrompt } from "../codex/prompt-builder.js";
+import { buildReviewPrompt, buildRespondPrompt } from "../codex/prompt-builder.js";
 import { loadConfig } from "../shared/config.js";
 import { gitDiff } from "../shared/git.js";
 import { getConversationContext, getTaskContext } from "./transcript.js";
 import { logInteraction, readSessionLog } from "../report/logger.js";
 import { readState, updateState } from "./state.js";
-import { sendInput as sendInputGhostty } from "../shared/ghostty.js";
-import { isPairTerminalRunning, sendInputViaPairTerminal } from "../shared/pair-terminal.js";
-import { findActiveSessions } from "./session-watcher.js";
 import type { HookInput, HookResponse } from "../types.js";
 
 function debugLog(label: string, data: unknown): void {
 	const logFile = path.join(os.homedir(), ".claude-codex-pair", "hook-debug.log");
 	const entry = `[${new Date().toISOString()}] ${label}: ${JSON.stringify(data)}\n`;
-	try { fs.appendFileSync(logFile, entry); } catch { /* ignore */ }
+	try {
+		fs.appendFileSync(logFile, entry, { mode: 0o600 });
+	} catch { /* ignore */ }
 }
 
 async function main(): Promise<void> {
@@ -49,7 +52,7 @@ async function main(): Promise<void> {
 	const lastMessage = input.last_assistant_message ?? "";
 	const config = loadConfig();
 
-	// Session filter — skip if not targeted
+	// Session filter  - skip if not targeted
 	if (config.targetSessions && config.targetSessions.length > 0) {
 		const projectName = cwd.split("/").pop() ?? "";
 		const matches = config.targetSessions.some(
@@ -84,7 +87,7 @@ async function main(): Promise<void> {
 			lastDecision: "APPROVE",
 			lastResponse: "Max cycles reached",
 		});
-		exit(approve("Max review cycles reached — auto-approving"));
+		exit(approve("Max review cycles reached  - auto-approving"));
 		return;
 	}
 
@@ -104,6 +107,9 @@ async function main(): Promise<void> {
 			gitDiff(cwd),
 		]);
 
+		// Detect if Claude is asking a question vs reporting completion
+		const isQuestion = lastMessage && looksLikeQuestion(lastMessage);
+
 		// Build previous feedback history so Codex can track progress
 		const previousEntries = readSessionLog(sessionId);
 		const previousFeedback = previousEntries
@@ -112,11 +118,17 @@ async function main(): Promise<void> {
 			.map((e) => `[Cycle ${e.cycle}] ${e.codexResponse}`)
 			.join("\n\n---\n\n");
 
-		// Always send both review context AND last message — Codex decides what to do
-		const reviewPrompt = buildReviewPrompt({ cwd, diffResult, sessionContext, previousFeedback: previousFeedback || undefined });
-		const prompt = lastMessage
-			? `${reviewPrompt}\n\nCLAUDE'S LAST MESSAGE (it may be asking a question — if so, answer it instead of reviewing):\n${lastMessage}`
-			: reviewPrompt;
+		// If Claude is asking a question, use the respond template (direct answer, no verdict parsing)
+		// Otherwise use the review template (completion check with APPROVE/FEEDBACK verdict)
+		let prompt: string;
+		if (isQuestion) {
+			prompt = buildRespondPrompt({ cwd, sessionContext, lastMessage });
+		} else {
+			const reviewPrompt = buildReviewPrompt({ cwd, diffResult, sessionContext, previousFeedback: previousFeedback || undefined });
+			prompt = lastMessage
+				? `${reviewPrompt}\n\nCLAUDE'S LAST MESSAGE:\n${lastMessage}`
+				: reviewPrompt;
+		}
 
 		const result = await callCodex({
 			prompt,
@@ -135,57 +147,23 @@ async function main(): Promise<void> {
 			},
 		});
 
-		// Unified response handling — Codex decides what to do
 		let hookResponse: HookResponse;
 		const stateBase = { cycle, task, diffStats: diffResult.stat, claudeResponse: undefined };
 
-		if (result.decision === "APPROVE") {
+		if (isQuestion) {
+			// Question mode: always block with the answer, regardless of parsed verdict.
+			// parseCodexResponse may misclassify plain answers like "Yes" as APPROVE.
+			const answer = result.response.trim();
+			hookResponse = block(answer);
+			updateState(sessionId, { ...stateBase, status: "feedback", lastDecision: "FEEDBACK", lastResponse: answer });
+		} else if (result.decision === "APPROVE") {
 			hookResponse = approve(result.response);
 			updateState(sessionId, { ...stateBase, status: "approved", lastDecision: "APPROVE", lastResponse: result.response });
 		} else {
-			// Strip verdict line and frame as instruction
-			const issues = result.response
-				.split("\n")
-				.filter((l) => l.trim() && !l.trim().match(/^(FEEDBACK|CONTEXT)$/))
-				.join("\n");
-			const instruction = `You are not done yet. Fix the following issues before stopping:\n\n${issues}\n\nDo not stop until all of the above are addressed.`;
-
-			// Try input injection: pair-terminal → Ghostty → hook block fallback
-			let inputSent = false;
-
-			// 1. Try pair-terminal (native app with PTY control)
-			if (await isPairTerminalRunning()) {
-				const ptResult = await sendInputViaPairTerminal(sessionId, result.response);
-				debugLog("PAIR_TERMINAL", ptResult);
-				inputSent = ptResult.success;
-			}
-
-			// 2. Try Ghostty (System Events clipboard paste)
-			if (!inputSent) {
-				const activeSessions = findActiveSessions();
-				const ghosttyResult = await sendInputGhostty(sessionId, result.response, activeSessions);
-				debugLog("GHOSTTY", ghosttyResult);
-				inputSent = ghosttyResult.success;
-			}
-
-			if (inputSent) {
-				hookResponse = approve(`[Ghostty] Sent feedback`);
-				updateState(sessionId, {
-					...stateBase,
-					status: "feedback",
-					lastDecision: result.decision,
-					lastResponse: `[via Ghostty] ${result.response}`,
-				});
-			} else {
-				// Fall back to hook block
-				hookResponse = block(instruction);
-				updateState(sessionId, {
-					...stateBase,
-					status: "feedback",
-					lastDecision: result.decision,
-					lastResponse: result.response,
-				});
-			}
+			const response = result.response.trim();
+			const message = `You are not done yet. Fix the following issues before stopping:\n\n${stripVerdictLine(response)}\n\nDo not stop until all of the above are addressed.`;
+			hookResponse = block(message);
+			updateState(sessionId, { ...stateBase, status: "feedback", lastDecision: "FEEDBACK", lastResponse: response });
 		}
 
 		logInteraction({
@@ -232,6 +210,34 @@ function readStdin(): Promise<string> {
 		process.stdin.on("error", reject);
 		if (process.stdin.readableEnded) resolve(data);
 	});
+}
+
+/** Strip verdict lines (FEEDBACK, CONTEXT) from Codex response. */
+function stripVerdictLine(text: string): string {
+	return text
+		.split("\n")
+		.filter((l) => l.trim() && !l.trim().match(/^(FEEDBACK|CONTEXT)$/))
+		.join("\n");
+}
+
+/**
+ * Detect if Claude's last message is asking a question rather than reporting completion.
+ * Questions get the respond template (direct answer); non-questions get the review template.
+ */
+function looksLikeQuestion(message: string): boolean {
+	const lower = message.toLowerCase();
+	// Explicit question patterns
+	if (/\?\s*$/.test(message.trim())) return true;
+	if (/\bshould (i|we)\b/.test(lower)) return true;
+	if (/\bwould you like\b/.test(lower)) return true;
+	if (/\bdo you want\b/.test(lower)) return true;
+	if (/\bcan (i|we)\b/.test(lower)) return true;
+	if (/\bpermission to\b/.test(lower)) return true;
+	if (/\bplease (confirm|choose|select|decide)\b/.test(lower)) return true;
+	if (/\bwhich (option|approach|one)\b/.test(lower)) return true;
+	// Numbered option lists (Claude presenting choices)
+	if (/^\s*[1-3][.)]\s/m.test(message) && /\b(option|choice|approach)\b/i.test(message)) return true;
+	return false;
 }
 
 main().catch((err) => {

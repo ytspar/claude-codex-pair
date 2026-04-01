@@ -7,3 +7,15 @@ app/PairApp/.build/
 .DS_Store
 .claude/settings.local.json
 app/PairApp/Frameworks/
+
+# Secrets & credentials
+.env
+.env.*
+.env.local
+.env.production
+*.pem
+*.key
+credentials.json
+
+# Audit
+.product-finalizer-skip.json

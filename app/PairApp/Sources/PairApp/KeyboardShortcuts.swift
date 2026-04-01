@@ -11,6 +11,7 @@ struct SessionShortcutButtons: View {
                 Button("") {
                     if index <= sessionManager.sessions.count {
                         sessionManager.activeSessionId = sessionManager.sessions[index - 1].id
+                        ClaudeMonitor.shared.activeSessionChanged()
                     }
                 }
                 .keyboardShortcut(KeyEquivalent(Character("\(index)")), modifiers: .command)

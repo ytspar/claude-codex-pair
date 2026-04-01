@@ -1,14 +1,14 @@
 import SwiftUI
 import SwiftTerm
 
-/// Wraps SwiftTerm's LocalProcessTerminalView in SwiftUI.
+/// Wraps SwiftTerm's PairTerminalView in SwiftUI.
 struct TerminalContainerView: NSViewRepresentable {
     @ObservedObject var session: PairSession
-    @ObservedObject var themeManager = ThemeManager.shared
+    @ObservedObject private var themeManager = ThemeManager.shared
 
     func makeNSView(context: Context) -> NSView {
         PairLog.info("makeNSView (SwiftTerm) for session \(session.id)")
-        let termView = LocalProcessTerminalView(frame: .zero)
+        let termView = PairTerminalView(frame: .zero)
 
         // Font from Ghostty config or default
         let config = GhosttyConfig.load()
@@ -51,9 +51,12 @@ struct TerminalContainerView: NSViewRepresentable {
             termView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
         ])
 
-        // Auto-focus
+        // Auto-focus (only if this session is still active when the delay fires)
+        let sessionId = session.id
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            termView.window?.makeFirstResponder(termView)
+            if SessionManager.shared.activeSessionId == sessionId {
+                termView.window?.makeFirstResponder(termView)
+            }
         }
 
         return container
@@ -62,15 +65,28 @@ struct TerminalContainerView: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         guard let termView = context.coordinator.terminalView,
               termView.window != nil else { return }
-        for subview in termView.subviews {
-            if let scroller = subview as? NSScroller { scroller.isHidden = true }
+
+        // Focus the terminal when this session becomes active
+        let isActive = session.id == SessionManager.shared.activeSessionId
+            && !SessionManager.shared.showProjectPicker
+        if isActive && termView.window?.firstResponder !== termView {
+            termView.window?.makeFirstResponder(termView)
         }
-        applyTheme(to: termView)
+
+        // Only reapply theme when it actually changes (avoid disk I/O + OSC rebuild on every SwiftUI tick)
+        let currentMode = themeManager.mode
+        if context.coordinator.lastAppliedThemeMode != currentMode {
+            context.coordinator.lastAppliedThemeMode = currentMode
+            for subview in termView.subviews {
+                if let scroller = subview as? NSScroller { scroller.isHidden = true }
+            }
+            applyTheme(to: termView)
+        }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(session: session) }
 
-    private func applyTheme(to termView: LocalProcessTerminalView) {
+    private func applyTheme(to termView: PairTerminalView) {
         let useGhostty = themeManager.mode == .ghostty
         let config = useGhostty ? GhosttyConfig.load() : nil
 
@@ -96,13 +112,118 @@ struct TerminalContainerView: NSViewRepresentable {
 
     class Coordinator {
         let session: PairSession
-        var terminalView: LocalProcessTerminalView?
-        init(session: PairSession) { self.session = session }
+        var terminalView: PairTerminalView?
+        var keyMonitor: Any?
+        var mouseMonitor: Any?
+        var lastAppliedThemeMode: ThemeManager.ThemeMode?
+
+        init(session: PairSession) {
+            self.session = session
+            // Monitor local key events to detect user typing
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self = self,
+                      let termView = self.terminalView,
+                      termView.window?.firstResponder === termView else { return event }
+                self.session.lastInputSource = .user
+                return event
+            }
+
+            // Option+click bypasses mouse reporting for text selection.
+            // When Option is held, temporarily disable allowMouseReporting so
+            // SwiftTerm handles mouse events for selection instead of sending
+            // them to the running application (Claude Code's TUI).
+            mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { [weak self] event in
+                guard let self = self, let termView = self.terminalView else { return event }
+                let optionHeld = event.modifierFlags.contains(.option)
+                if optionHeld {
+                    termView.allowMouseReporting = false
+                }
+                // Re-enable after mouseUp so normal mouse interactions resume
+                if event.type == .leftMouseUp && !termView.allowMouseReporting {
+                    // Defer re-enable so the current mouseUp is processed without reporting
+                    DispatchQueue.main.async {
+                        termView.allowMouseReporting = true
+                    }
+                }
+                return event
+            }
+        }
+
+        deinit {
+            if let monitor = keyMonitor { NSEvent.removeMonitor(monitor) }
+            if let monitor = mouseMonitor { NSEvent.removeMonitor(monitor) }
+        }
     }
 }
 
 class TerminalHostView: NSView {
     override var isOpaque: Bool { true }
+    override var acceptsFirstResponder: Bool { true }
+
+    /// Prevent SwiftUI from intercepting arrow keys, Tab, Escape, etc.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // ⌘F → open SwiftTerm's built-in find bar
+        // ⌘G → find next, ⇧⌘G → find previous
+        if event.modifierFlags.contains(.command), let chars = event.charactersIgnoringModifiers {
+            if let termView = subviews.first as? PairTerminalView {
+                let item = NSMenuItem()
+                if chars == "f" {
+                    item.tag = Int(NSFindPanelAction.showFindPanel.rawValue)
+                    termView.performFindPanelAction(item)
+                    return true
+                } else if chars == "g" {
+                    item.tag = event.modifierFlags.contains(.shift)
+                        ? Int(NSFindPanelAction.previous.rawValue)
+                        : Int(NSFindPanelAction.next.rawValue)
+                    termView.performFindPanelAction(item)
+                    return true
+                }
+            }
+        }
+
+        // Arrow keys, Tab, Escape must reach the terminal, not SwiftUI.
+        // SwiftUI hosting views eat these for focus navigation. Ensure the
+        // terminal is first responder so its interpretKeyEvents → doCommand
+        // path handles them (including Kitty protocol).
+        if let termView = subviews.first as? PairTerminalView {
+            let dominated: Set<UInt16> = [123, 124, 125, 126, 48, 53]  // ←→↑↓ Tab Esc
+            if dominated.contains(event.keyCode) {
+                if window?.firstResponder !== termView {
+                    window?.makeFirstResponder(termView)
+                }
+                termView.keyDown(with: event)
+                return true
+            }
+        }
+
+        if let termView = subviews.first {
+            if termView.performKeyEquivalent(with: event) { return true }
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard let termView = subviews.first as? PairTerminalView else {
+            super.keyDown(with: event)
+            return
+        }
+
+        // Fix: SwiftTerm's doCommand(by: insertNewline:) drops the Shift modifier
+        // when Kitty keyboard protocol is active. Detect Shift+Enter and send the
+        // correct Kitty-encoded sequence directly: CSI 13;2u
+        // (13 = CR codepoint, 2 = shift modifier flag + 1)
+        if event.keyCode == 36 && event.modifierFlags.contains(.shift) {
+            let terminal = termView.getTerminal()
+            if !terminal.keyboardEnhancementFlags.isEmpty {
+                // Kitty protocol is active — send CSI 13;2u for Shift+Enter
+                termView.send(txt: "\u{1B}[13;2u")
+                return
+            }
+        }
+
+        termView.keyDown(with: event)
+    }
+
     override func viewWillStartLiveResize() {
         super.viewWillStartLiveResize()
         layer?.shouldRasterize = true

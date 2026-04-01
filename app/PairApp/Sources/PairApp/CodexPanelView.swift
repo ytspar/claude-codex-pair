@@ -1,153 +1,209 @@
 import SwiftUI
+import Combine
 
-/// Codex review panel — devbar-inspired terminal aesthetic.
+/// Codex review panel — instrumentation-style sidebar.
+/// Dense, scannable, no decorative borders. Uses spacing and color for hierarchy.
+/// Keyboard-navigable: Tab to focus panel, arrow keys to move, Enter/Space to expand.
 struct CodexPanelView: View {
     @StateObject private var store = CodexStore()
     @ObservedObject private var tm = ThemeManager.shared
     @ObservedObject private var sessionManager = SessionManager.shared
     @ObservedObject private var monitor = ClaudeMonitor.shared
+    @State private var refreshTick = 0
+    @State private var focusedIndex: Int? = nil
+    @State private var expandedIds: Set<UUID> = []
+
+    /// All focusable items: timeline entries (could add task/feedback later).
+    private var focusableItems: [ClaudeMonitor.TimelineEntry] {
+        monitor.timeline
+    }
 
     var body: some View {
+        let _ = refreshTick
         VStack(alignment: .leading, spacing: 0) {
-            // ── Header ──
-            HStack {
-                // Notched wing left
-                Rectangle().fill(tm.border).frame(width: 12, height: 1)
-                Text("CODEX REVIEW")
-                    .font(Theme.monoSmall)
-                    .fontWeight(.bold)
-                    .foregroundColor(tm.accent)
-                    .tracking(1.5)
-                // Notched wing right
-                Rectangle().fill(tm.border).frame(height: 1)
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 12)
-            .padding(.bottom, 8)
+            // ── Status strip ──
+            statusStrip
+                .padding(.horizontal, 14)
+                .padding(.top, 14)
+                .padding(.bottom, 10)
 
-            // ── Status row ──
-            HStack(spacing: 10) {
-                StatusDot(status: displayStatus)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(statusLabel(displayStatus))
-                        .font(Theme.monoSmall)
-                        .foregroundColor(statusColor(displayStatus))
-                        .tracking(0.5)
-                    Text(statusSubtitle(displayStatus))
-                        .font(Theme.monoTiny)
-                        .foregroundColor(tm.textMuted)
-                }
-                Spacer()
-                if monitor.cycleCount > 0 {
-                    Text("CYCLE \(monitor.cycleCount)")
-                        .font(Theme.monoTiny)
-                        .foregroundColor(tm.textSecondary)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(tm.bgElevated)
-
-            // ── Decision badge ──
-            if !store.state.decision.isEmpty {
-                HStack {
-                    Text(store.state.decision)
-                        .font(Theme.monoSmall)
-                        .fontWeight(.bold)
-                        .foregroundColor(decisionColor(store.state.decision))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 3)
-                        .background(decisionColor(store.state.decision).opacity(0.15))
-                        .clipShape(RoundedRectangle(cornerRadius: 3))
-                    Spacer()
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-            }
-
-            Divider().background(tm.border).padding(.horizontal, 12).padding(.vertical, 8)
+            // ── Thin rule ──
+            Rectangle().fill(tm.border).frame(height: 1)
+                .padding(.horizontal, 14)
 
             // ── Scrollable content ──
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    // Task card
-                    if !store.state.task.isEmpty {
-                        CardView(title: "TASK") {
-                            Text(store.state.task)
-                                .font(Theme.monoTiny)
-                                .foregroundColor(tm.text)
-                                .lineLimit(6)
-                        }
-                    }
-
-                    // Feedback card
-                    if !store.state.feedback.isEmpty {
-                        CardView(title: "FEEDBACK") {
-                            Text(store.state.feedback)
-                                .font(Theme.monoTiny)
-                                .foregroundColor(tm.text)
-                                .textSelection(.enabled)
-                        }
-                    }
-
-                    // Live timeline from ClaudeMonitor
-                    if !monitor.timeline.isEmpty {
-                        CardView(title: "TIMELINE") {
-                            VStack(alignment: .leading, spacing: 8) {
-                                ForEach(monitor.timeline) { entry in
-                                    HStack(alignment: .top, spacing: 8) {
-                                        Circle()
-                                            .fill(timelineColor(entry.event))
-                                            .frame(width: 6, height: 6)
-                                            .padding(.top, 4)
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            HStack(spacing: 6) {
-                                                Text(entry.event)
-                                                    .font(Theme.monoTiny)
-                                                    .fontWeight(.bold)
-                                                    .foregroundColor(timelineColor(entry.event))
-                                                Text(timeAgo(entry.time))
-                                                    .font(Theme.monoTiny)
-                                                    .foregroundColor(tm.textMuted)
-                                            }
-                                            Text(entry.detail)
-                                                .font(Theme.monoTiny)
-                                                .foregroundColor(tm.textSecondary)
-                                                .lineLimit(3)
-                                        }
-                                    }
-                                }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        // Task block
+                        if !store.state.task.isEmpty {
+                            sectionBlock(label: "TASK") {
+                                Text(store.state.task)
+                                    .font(Theme.monoTiny)
+                                    .foregroundColor(tm.text)
+                                    .lineLimit(6)
                             }
+                        }
+
+                        // Feedback block
+                        if !store.state.feedback.isEmpty {
+                            sectionBlock(label: "FEEDBACK") {
+                                Text(store.state.feedback)
+                                    .font(Theme.monoTiny)
+                                    .foregroundColor(tm.text)
+                                    .textSelection(.enabled)
+                            }
+                        }
+
+                        // Task queue
+                        TaskQueueView()
+
+                        // Timeline
+                        if !monitor.timeline.isEmpty {
+                            TimelineSectionView(
+                                entries: monitor.timeline,
+                                tm: tm,
+                                colorForEvent: timelineColor,
+                                focusedIndex: focusedIndex,
+                                expandedIds: $expandedIds
+                            )
+                            .padding(.top, 14)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.top, 10)
+                }
+                .onChange(of: focusedIndex) { idx in
+                    if let idx = idx, idx < focusableItems.count {
+                        withAnimation(.easeOut(duration: 0.1)) {
+                            proxy.scrollTo(focusableItems[idx].id, anchor: .center)
                         }
                     }
                 }
-                .padding(.horizontal, 12)
             }
 
             // ── Scratchpad ──
             ScratchpadView()
 
             // ── Footer ──
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(store.state.status == "reviewing" ? tm.warning : tm.textMuted)
-                    .frame(width: 5, height: 5)
-                Text("IPC: pair-terminal.sock")
-                    .font(Theme.monoTiny)
-                    .foregroundColor(tm.textMuted)
-                Spacer()
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            footer
         }
         .background(tm.bg)
+        .background(CodexKeyHandler(
+            itemCount: focusableItems.count,
+            focusedIndex: $focusedIndex,
+            onToggle: { idx in
+                guard idx < focusableItems.count else { return }
+                let id = focusableItems[idx].id
+                withAnimation(.easeOut(duration: 0.12)) {
+                    if expandedIds.contains(id) { expandedIds.remove(id) }
+                    else { expandedIds.insert(id) }
+                }
+            }
+        ))
+        .onReceive(Timer.publish(every: 5, on: .main, in: .common).autoconnect()) { _ in
+            refreshTick += 1
+        }
     }
 
+    // MARK: - Status strip
+
+    private var statusStrip: some View {
+        HStack(spacing: 0) {
+            // Left-edge color bar
+            RoundedRectangle(cornerRadius: 1)
+                .fill(statusColor(displayStatus))
+                .frame(width: 3, height: 18)
+                .padding(.trailing, 10)
+
+            HStack(spacing: 6) {
+                Text(statusLabel(displayStatus))
+                    .font(Theme.monoTiny)
+                    .fontWeight(.bold)
+                    .foregroundColor(statusColor(displayStatus))
+                    .tracking(0.8)
+
+                if !store.state.decision.isEmpty {
+                    Text(store.state.decision)
+                        .font(Theme.monoTiny)
+                        .foregroundColor(decisionColor(store.state.decision))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(decisionColor(store.state.decision).opacity(0.1))
+                }
+
+                Spacer()
+
+                if monitor.cycleCount > 0 {
+                    Text("\(monitor.cycleCount)")
+                        .font(Theme.monoTiny)
+                        .foregroundColor(tm.textSecondary)
+                        .frame(width: 20, height: 20)
+                        .background(tm.bgElevated)
+                }
+            }
+        }
+    }
+
+    // MARK: - Section block (replaces CardView)
+
+    private func sectionBlock<Content: View>(label: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(Theme.monoTiny)
+                .foregroundColor(tm.textMuted)
+                .tracking(1.0)
+
+            HStack(spacing: 0) {
+                // Left accent edge
+                Rectangle()
+                    .fill(tm.accent.opacity(0.3))
+                    .frame(width: 2)
+
+                content()
+                    .padding(.leading, 10)
+                    .padding(.vertical, 6)
+            }
+        }
+        .padding(.top, 14)
+    }
+
+    // MARK: - Footer
+
+    @ObservedObject private var taskQueue = TaskQueue.shared
+
+    private var footer: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(monitor.status == "reviewing" ? tm.warning : (monitor.status == "error" ? tm.error : tm.accent))
+                .frame(width: 4, height: 4)
+            Text("\(sessionManager.sessions.count) session\(sessionManager.sessions.count == 1 ? "" : "s")")
+                .font(Theme.monoTiny)
+                .foregroundColor(tm.textMuted.opacity(0.6))
+            if monitor.cycleCount > 0 {
+                Text("\u{00B7} \(monitor.cycleCount) review\(monitor.cycleCount == 1 ? "" : "s")")
+                    .font(Theme.monoTiny)
+                    .foregroundColor(tm.textMuted.opacity(0.6))
+            }
+            if taskQueue.pendingCount > 0 {
+                Text("\u{00B7} \(taskQueue.pendingCount) queued")
+                    .font(Theme.monoTiny)
+                    .foregroundColor(tm.textMuted.opacity(0.6))
+            }
+            Spacer()
+            Text(AppVersion.displayString)
+                .font(Theme.monoTiny)
+                .foregroundColor(tm.textMuted.opacity(0.4))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 5)
+    }
+
+    // MARK: - State helpers
+
     var displayStatus: String {
-        // Monitor status takes priority (it knows real-time state)
         let m = monitor.status
         if m != "idle" { return m }
-        // Fall back to Codex state file status
         let s = store.state.status
         if s != "idle" { return s }
         return sessionManager.sessions.isEmpty ? "idle" : "watching"
@@ -168,20 +224,15 @@ struct CodexPanelView: View {
     }
 
     func timelineColor(_ event: String) -> Color {
+        // Monochrome emerald palette — only errors break the hue.
         switch event {
-        case "APPROVED": return tm.accent
-        case "FEEDBACK": return tm.warning
-        case "REVIEWING": return tm.cyan
-        default: return tm.textMuted
+        case "APPROVED":                          return tm.accent
+        case "FEEDBACK", "CODEX_RESPONSE":        return tm.accent.opacity(0.7)
+        case "REVIEWING", "STUCK":                return tm.textSecondary
+        case "SELECT":                            return tm.textMuted
+        case "CODEX_EMPTY", "ERROR", "LOOP_DETECTED": return tm.error
+        default:                                  return tm.textMuted
         }
-    }
-
-    func timeAgo(_ date: Date) -> String {
-        let s = -date.timeIntervalSinceNow
-        if s < 5 { return "just now" }
-        if s < 60 { return "\(Int(s))s ago" }
-        if s < 3600 { return "\(Int(s / 60))m ago" }
-        return "\(Int(s / 3600))h ago"
     }
 
     func statusLabel(_ s: String) -> String {
@@ -202,9 +253,9 @@ struct CodexPanelView: View {
         switch s {
         case "watching": return tm.cyan
         case "waiting": return tm.accent
-        case "reviewing": return tm.warning
+        case "reviewing": return tm.textSecondary
         case "approved": return tm.accent
-        case "feedback": return tm.purple
+        case "feedback": return tm.accent.opacity(0.7)
         case "error": return tm.error
         default: return tm.textMuted
         }
@@ -213,97 +264,356 @@ struct CodexPanelView: View {
     func decisionColor(_ d: String) -> Color {
         switch d {
         case "APPROVE": return tm.accent
-        case "FEEDBACK": return tm.warning
-        case "CONTEXT": return tm.cyan
+        case "FEEDBACK": return tm.accent.opacity(0.7)
+        case "CONTEXT": return tm.textSecondary
         default: return tm.textMuted
         }
     }
 }
 
-/// Devbar-style notched card with wing header.
-struct CardView<Content: View>: View {
-    @ObservedObject private var tm = ThemeManager.shared
-    let title: String
-    @ViewBuilder let content: Content
+// MARK: - Timeline
+
+/// Timeline section — vertical spine through dots, no border box.
+struct TimelineSectionView: View {
+    let entries: [ClaudeMonitor.TimelineEntry]
+    let tm: ThemeManager
+    let colorForEvent: (String) -> Color
+    var focusedIndex: Int? = nil
+    @Binding var expandedIds: Set<UUID>
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Wing header
-            HStack(spacing: 0) {
-                Rectangle().fill(tm.border).frame(width: 12, height: 1)
-                Text(title)
-                    .font(Theme.monoTiny)
-                    .fontWeight(.bold)
-                    .foregroundColor(tm.accent.opacity(0.7))
-                    .tracking(1.0)
-                    .padding(.horizontal, 6)
-                Rectangle().fill(tm.border).frame(height: 1)
+            Text("TIMELINE")
+                .font(Theme.monoTiny)
+                .foregroundColor(tm.textMuted)
+                .tracking(1.0)
+                .padding(.bottom, 8)
+
+            ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                let isFirst = index == 0
+                let isResolution = entry.event == "APPROVED" || entry.event == "FEEDBACK"
+                let color = colorForEvent(entry.event)
+                let isFocused = focusedIndex == index
+                let isExpanded = expandedIds.contains(entry.id)
+
+                TimelineEntryView(
+                    entry: entry,
+                    tm: tm,
+                    color: color,
+                    isLatest: isFirst,
+                    isResolution: isResolution,
+                    showTimestamp: shouldShowTimestamp(index),
+                    isLast: index == entries.count - 1,
+                    isFocused: isFocused,
+                    isExpanded: isExpanded,
+                    onToggle: {
+                        withAnimation(.easeOut(duration: 0.12)) {
+                            if expandedIds.contains(entry.id) { expandedIds.remove(entry.id) }
+                            else { expandedIds.insert(entry.id) }
+                        }
+                    }
+                )
+                .id(entry.id)
+            }
+        }
+    }
+
+    private func shouldShowTimestamp(_ index: Int) -> Bool {
+        if index == 0 { return true }
+        let current = timeBucket(entries[index].time)
+        let previous = timeBucket(entries[index - 1].time)
+        return current != previous
+    }
+
+    private func timeBucket(_ date: Date) -> String {
+        let s = -date.timeIntervalSinceNow
+        if s < 60 { return "now" }
+        if s < 3600 { return "\(Int(s / 60))m" }
+        return "\(Int(s / 3600))h"
+    }
+}
+
+/// Single timeline entry — dot with spine segment below it.
+/// Supports focus highlight (keyboard nav) and expand/collapse.
+struct TimelineEntryView: View {
+    let entry: ClaudeMonitor.TimelineEntry
+    let tm: ThemeManager
+    let color: Color
+    let isLatest: Bool
+    let isResolution: Bool
+    let showTimestamp: Bool
+    var isLast: Bool = false
+    var isFocused: Bool = false
+    var isExpanded: Bool = false
+    var onToggle: (() -> Void)? = nil
+
+    private var dotSize: CGFloat { isResolution ? 8 : 5 }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 10) {
+                // Dot column
+                VStack(spacing: 0) {
+                    ZStack {
+                        if isLatest || isFocused {
+                            Circle()
+                                .fill(color.opacity(isFocused ? 0.25 : 0.15))
+                                .frame(width: 14, height: 14)
+                        }
+                        Circle()
+                            .fill(color)
+                            .frame(width: dotSize, height: dotSize)
+                    }
+                    .frame(width: 14, height: 14)
+
+                    // Spine segment below dot
+                    if !isLast {
+                        Rectangle()
+                            .fill(tm.border.opacity(0.4))
+                            .frame(width: 1)
+                            .frame(maxHeight: .infinity)
+                    }
+                }
+                .frame(width: 14)
+
+                // Content
+                VStack(alignment: .leading, spacing: 2) {
+                    // Header row — tappable to expand/collapse
+                    HStack(spacing: 6) {
+                        Text(entry.event)
+                            .font(Theme.monoTiny)
+                            .fontWeight(.bold)
+                            .foregroundColor(color)
+                        if let ms = entry.durationMs {
+                            Text(formatDuration(ms))
+                                .font(Theme.monoTiny)
+                                .foregroundColor(tm.textMuted)
+                        }
+                        Spacer()
+                        if showTimestamp {
+                            Text(timeAgo(entry.time))
+                                .font(Theme.monoTiny)
+                                .foregroundColor(tm.textMuted.opacity(0.7))
+                        }
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 7))
+                            .foregroundColor(tm.textMuted.opacity(0.4))
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { onToggle?() }
+
+                    // Detail text — selectable, not blocked by tap gesture
+                    Text(entry.detail)
+                        .font(Theme.monoTiny)
+                        .foregroundColor(isLatest || isFocused ? tm.textSecondary : tm.textMuted)
+                        .lineLimit(isExpanded ? nil : (isLatest ? 2 : 1))
+                        .textSelection(.enabled)
+
+                    // Expanded: show full context
+                    if isExpanded {
+                        expandedContent
+                    }
+                }
+                .padding(.bottom, isResolution ? 10 : 6)
+            }
+        }
+        // Focus highlight
+        .background(
+            isFocused
+                ? RoundedRectangle(cornerRadius: 3).fill(tm.accent.opacity(0.05)).padding(.horizontal, -4)
+                : nil
+        )
+        .opacity(isLatest || isFocused ? 1.0 : 0.65)
+    }
+
+    // MARK: - Expanded content
+
+    @ViewBuilder
+    private var expandedContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Full Codex response
+            if let response = entry.codexResponse, !response.isEmpty, response != entry.detail {
+                expandedSection(label: "CODEX RESPONSE", text: response, copyable: true)
             }
 
-            // Content with side borders
-            VStack(alignment: .leading) {
-                content
+            // Git diff summary
+            if let diff = entry.diffSummary, !diff.isEmpty {
+                expandedSection(label: "GIT DIFF", text: diff, copyable: false)
             }
-            .padding(10)
-            .overlay(
-                RoundedRectangle(cornerRadius: 0)
-                    .strokeBorder(tm.border, lineWidth: 1)
-            )
+
+            // Prompt sent to Codex
+            if let prompt = entry.codexPrompt, !prompt.isEmpty {
+                expandedSection(label: "PROMPT", text: prompt, copyable: true)
+            }
+
+            // Screen context
+            if let snippet = entry.screenSnippet, !snippet.isEmpty {
+                expandedSection(label: "SCREEN", text: snippet, copyable: false)
+            }
+
+            // Copy all button
+            HStack(spacing: 10) {
+                copyButton(label: "Copy response", text: entry.codexResponse)
+                copyButton(label: "Copy all", text: allCopyText)
+                Spacer()
+            }
+            .padding(.top, 2)
+        }
+        .padding(.top, 6)
+    }
+
+    private func expandedSection(label: String, text: String, copyable: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text(label)
+                    .font(Theme.monoTiny)
+                    .foregroundColor(tm.textMuted.opacity(0.6))
+                    .tracking(0.8)
+                if copyable {
+                    copyButton(label: nil, text: text)
+                }
+            }
+            Text(text)
+                .font(Theme.monoTiny)
+                .foregroundColor(tm.textMuted)
+                .textSelection(.enabled)
+                .lineLimit(label == "PROMPT" ? 6 : nil)
+        }
+        .padding(8)
+        .background(tm.bgElevated.opacity(0.3))
+    }
+
+    private func copyButton(label: String?, text: String?) -> some View {
+        Button(action: {
+            guard let text = text, !text.isEmpty else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        }) {
+            HStack(spacing: 3) {
+                Image(systemName: "doc.on.doc")
+                    .font(.system(size: 8))
+                if let label = label {
+                    Text(label)
+                        .font(Theme.monoTiny)
+                }
+            }
+            .foregroundColor(tm.accent.opacity(0.7))
+        }
+        .buttonStyle(.plain)
+        .opacity(text?.isEmpty == false ? 1 : 0.3)
+    }
+
+    private var allCopyText: String? {
+        var parts: [String] = []
+        parts.append("[\(entry.event)] \(timeAgo(entry.time))")
+        parts.append(entry.detail)
+        if let r = entry.codexResponse { parts.append("Response: \(r)") }
+        if let d = entry.diffSummary { parts.append("Diff:\n\(d)") }
+        if let p = entry.codexPrompt { parts.append("Prompt:\n\(p)") }
+        return parts.joined(separator: "\n\n")
+    }
+
+    // MARK: - Helpers
+
+    private func timeAgo(_ date: Date) -> String {
+        let s = -date.timeIntervalSinceNow
+        if s < 5 { return "just now" }
+        if s < 60 { return "\(Int(s))s ago" }
+        if s < 3600 { return "\(Int(s / 60))m ago" }
+        return "\(Int(s / 3600))h ago"
+    }
+
+    private func formatDuration(_ ms: Int) -> String {
+        if ms < 1000 { return "\(ms)ms" }
+        return String(format: "%.1fs", Double(ms) / 1000.0)
+    }
+}
+
+/// Keyboard handler for Codex panel navigation.
+/// Listens for arrow keys + Enter/Space when the Codex panel area is active.
+struct CodexKeyHandler: NSViewRepresentable {
+    let itemCount: Int
+    @Binding var focusedIndex: Int?
+    let onToggle: (Int) -> Void
+
+    func makeNSView(context: Context) -> CodexKeyView {
+        let view = CodexKeyView()
+        view.handler = context.coordinator
+        return view
+    }
+
+    func updateNSView(_ nsView: CodexKeyView, context: Context) {
+        context.coordinator.itemCount = itemCount
+        context.coordinator.focusedIndex = $focusedIndex
+        context.coordinator.onToggle = onToggle
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(itemCount: itemCount, focusedIndex: $focusedIndex, onToggle: onToggle)
+    }
+
+    class Coordinator {
+        var itemCount: Int
+        var focusedIndex: Binding<Int?>
+        var onToggle: (Int) -> Void
+
+        init(itemCount: Int, focusedIndex: Binding<Int?>, onToggle: @escaping (Int) -> Void) {
+            self.itemCount = itemCount
+            self.focusedIndex = focusedIndex
+            self.onToggle = onToggle
+        }
+
+        func handleKey(_ event: NSEvent) -> Bool {
+            // Only handle when Option is held (so arrow keys don't conflict with terminal)
+            guard event.modifierFlags.contains(.option) else { return false }
+
+            switch event.keyCode {
+            case 126: // Up arrow
+                if let idx = focusedIndex.wrappedValue {
+                    focusedIndex.wrappedValue = max(0, idx - 1)
+                } else {
+                    focusedIndex.wrappedValue = 0
+                }
+                return true
+            case 125: // Down arrow
+                if let idx = focusedIndex.wrappedValue {
+                    focusedIndex.wrappedValue = min(itemCount - 1, idx + 1)
+                } else {
+                    focusedIndex.wrappedValue = 0
+                }
+                return true
+            case 36, 49: // Enter or Space
+                if let idx = focusedIndex.wrappedValue, idx < itemCount {
+                    onToggle(idx)
+                }
+                return true
+            case 53: // Escape
+                focusedIndex.wrappedValue = nil
+                return true
+            default:
+                return false
+            }
         }
     }
 }
 
-/// Animated status dot.
-struct StatusDot: View {
-    @ObservedObject private var tm = ThemeManager.shared
-    let status: String
+class CodexKeyView: NSView {
+    var handler: CodexKeyHandler.Coordinator?
+    private var monitor: Any?
 
-    var color: Color {
-        switch status {
-        case "watching": return tm.cyan
-        case "waiting": return tm.accent
-        case "reviewing": return tm.warning
-        case "approved": return tm.accent
-        case "feedback": return tm.purple
-        case "error": return tm.error
-        default: return tm.textMuted
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil && monitor == nil {
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                if self?.handler?.handleKey(event) == true { return nil }
+                return event
+            }
         }
     }
 
-    @State private var isPulsing = false
-
-    private var shouldAnimate: Bool {
-        status == "watching" || status == "reviewing" || status == "responding"
-    }
-
-    var body: some View {
-        ZStack {
-            // Outer glow ring — pulses when active
-            Circle()
-                .fill(color.opacity(shouldAnimate ? (isPulsing ? 0.4 : 0.1) : 0.2))
-                .frame(width: 16, height: 16)
-
-            // Inner dot
-            Circle()
-                .fill(color)
-                .frame(width: 8, height: 8)
-        }
-        .onAppear {
-            if shouldAnimate {
-                withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
-                    isPulsing = true
-                }
-            }
-        }
-        .onChange(of: status) { _ in
-            if shouldAnimate {
-                withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
-                    isPulsing = true
-                }
-            } else {
-                isPulsing = false
-            }
-        }
+    override func removeFromSuperview() {
+        if let m = monitor { NSEvent.removeMonitor(m); monitor = nil }
+        super.removeFromSuperview()
     }
 }
 
