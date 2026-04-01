@@ -169,15 +169,22 @@ class ClaudeMonitor: ObservableObject {
             sessions = SessionManager.shared.sessions
         }
 
+        var activeId: String?
+        DispatchQueue.main.sync {
+            activeId = SessionManager.shared.activeSessionId
+        }
+
         guard !sessions.isEmpty else {
             if status != "idle" { DispatchQueue.main.async { self.syncPublished() } }
             return
         }
 
-        // Poll ALL sessions, not just the active one
-        for session in sessions {
-            pollSession(session)
+        // Only monitor the active tab — other tabs are paused
+        guard let activeId = activeId,
+              let activeSession = sessions.first(where: { $0.id == activeId }) else {
+            return
         }
+        pollSession(activeSession)
     }
 
     private func pollSession(_ session: PairSession) {
@@ -203,6 +210,19 @@ class ClaudeMonitor: ObservableObject {
         }
         st.emptyScreenCount = 0
         st.lastScreenText = screenText
+
+        // Dismiss modal overlays (background tasks, file viewers) that block input
+        if isModalView(screenText) && !st.reviewInProgress {
+            st.consecutiveSelects += 1
+            if st.consecutiveSelects <= 3 {
+                PairLog.info("[\(session.id)] Modal view detected, sending Escape to dismiss")
+                DispatchQueue.main.async {
+                    session.sendEscape()
+                    self.addTimeline(st, "SELECT", "Escape (dismissing modal view)")
+                }
+            }
+            return
+        }
 
         let hash = screenText.hashValue
 
@@ -511,6 +531,14 @@ class ClaudeMonitor: ObservableObject {
         let hasOpenTask = tail.contains("open)") || tail.contains("□") || tail.contains("⠋") || tail.contains("⠙") || tail.contains("⠸")
         let hasWaitLanguage = patterns.contains { tail.contains($0) }
         return hasWaitLanguage && (hasOpenTask || tail.contains("still") || tail.contains("wait"))
+    }
+
+    /// Detect if Claude is in a modal/overlay view (background tasks, file viewer, etc.)
+    /// that blocks the input prompt. These need Escape to dismiss.
+    private func isModalView(_ screenText: String) -> Bool {
+        let lower = screenText.lowercased()
+        // "↑/↓ to select · Enter to view · ←/Esc to close" — background tasks, file list, etc.
+        return lower.contains("esc to close") || lower.contains("←/esc to close")
     }
 
     /// Detect if Claude appears stuck — interrupted, errored, or idle after minimal work.

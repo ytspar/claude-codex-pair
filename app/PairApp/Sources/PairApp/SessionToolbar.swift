@@ -78,9 +78,15 @@ struct ToolbarTab: View {
                 Image(systemName: icon)
                     .font(Theme.monoTiny)
                     .foregroundColor(themeManager.accent)
-            } else {
+            } else if isActive {
+                // Active tab: filled dot = monitored
                 Circle()
                     .fill(themeManager.accent)
+                    .frame(width: 6, height: 6)
+            } else {
+                // Inactive tab: hollow dot = paused
+                Circle()
+                    .strokeBorder(themeManager.textMuted, lineWidth: 1)
                     .frame(width: 6, height: 6)
             }
             Text(name)
