@@ -50,7 +50,7 @@ struct AuthChecker {
                 status.codexAuthenticated = true
                 status.codexAuthMethod = "api_key"
             } else {
-                // Subscription auth — check if codex can reach the API
+                // Subscription auth  - check if codex can reach the API
                 // `codex exec` with a trivial prompt will fail fast if not authed
                 if let authCheck = runCommand("codex", args: ["auth", "status"]) {
                     status.codexAuthenticated = authCheck.lowercased().contains("authenticated")
@@ -58,7 +58,7 @@ struct AuthChecker {
                         || !authCheck.lowercased().contains("not")
                     status.codexAuthMethod = "subscription"
                 } else {
-                    // codex auth status might not exist — try a quick exec
+                    // codex auth status might not exist  - try a quick exec
                     if let execCheck = runCommand("codex", args: ["exec", "-s", "read-only", "say ok"], timeout: 15) {
                         status.codexAuthenticated = !execCheck.lowercased().contains("unauthorized")
                             && !execCheck.lowercased().contains("authentication")
@@ -78,7 +78,7 @@ struct AuthChecker {
         let pipe = Pipe()
 
         // Find the command in common paths
-        // Search common binary locations — don't hardcode specific versions
+        // Search common binary locations  - don't hardcode specific versions
         var paths = [
             "/usr/local/bin/\(command)",
             "/opt/homebrew/bin/\(command)",

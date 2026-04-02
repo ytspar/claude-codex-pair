@@ -32,13 +32,17 @@ enum Theme {
     static let border = Color(hex: 0x10B981).opacity(0.2)
     static let borderSubtle = Color(hex: 0x10B981).opacity(0.1)
 
-    // Fonts — Departure Mono for headers/UI, system mono fallback
+    // Fonts  - Departure Mono for headers/UI, system mono fallback
     static let fontName = "Departure Mono"
 
-    static let mono = Font.custom(fontName, size: 14)
-    static let monoSmall = Font.custom(fontName, size: 12)
     static let monoTiny = Font.custom(fontName, size: 11)
+    static let monoSmall = Font.custom(fontName, size: 12)
+    static let mono = Font.custom(fontName, size: 14)
     static let monoTitle = Font.custom(fontName, size: 16)
+    static let monoSubtitle = Font.custom(fontName, size: 18)
+    static let monoHeading = Font.custom(fontName, size: 20)
+    static let monoLarge = Font.custom(fontName, size: 36)
+    static let monoIcon = Font.custom(fontName, size: 48)
 }
 
 extension Color {

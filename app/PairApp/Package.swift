@@ -10,6 +10,7 @@ let package = Package(
     targets: [
         .testTarget(
             name: "PairAppTests",
+            dependencies: ["PairApp"],
             path: "Tests/PairAppTests"
         ),
         .executableTarget(

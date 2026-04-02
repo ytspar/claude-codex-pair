@@ -14,21 +14,21 @@ struct AboutView: View {
             }
 
             Text("Pair")
-                .font(.custom(Theme.fontName, size: 36))
+                .font(Theme.monoLarge)
                 .foregroundColor(themeManager.text)
 
             Text("Claude + Codex")
-                .font(.custom(Theme.fontName, size: 18))
+                .font(Theme.monoSubtitle)
                 .foregroundColor(themeManager.accent)
 
             Text(AppVersion.displayString)
-                .font(.custom(Theme.fontName, size: 14))
+                .font(Theme.mono)
                 .foregroundColor(themeManager.textMuted)
 
             Divider().frame(width: 240)
 
             Text("A native macOS app that pairs Claude Code with OpenAI Codex for autonomous code review and task completion. Codex reviews Claude's work, provides feedback, answers questions, and ensures tasks are completed thoroughly.")
-                .font(.custom(Theme.fontName, size: 13))
+                .font(Theme.monoSmall)
                 .foregroundColor(themeManager.textSecondary)
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
@@ -38,15 +38,15 @@ struct AboutView: View {
 
             VStack(spacing: 8) {
                 Link("github.com/ytspar/claude-codex-pair", destination: URL(string: "https://github.com/ytspar/claude-codex-pair")!)
-                    .font(.custom(Theme.fontName, size: 13))
+                    .font(Theme.monoSmall)
                     .foregroundColor(themeManager.accent)
 
                 Text("Created by ytspar")
-                    .font(.custom(Theme.fontName, size: 13))
+                    .font(Theme.monoSmall)
                     .foregroundColor(themeManager.textMuted)
 
                 Text("MIT License")
-                    .font(.custom(Theme.fontName, size: 12))
+                    .font(Theme.monoSmall)
                     .foregroundColor(themeManager.textMuted)
             }
 

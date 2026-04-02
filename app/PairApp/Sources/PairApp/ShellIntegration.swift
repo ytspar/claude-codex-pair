@@ -1,6 +1,6 @@
 import Foundation
 
-/// Shell integration — injects environment variables and hooks into zsh/bash
+/// Shell integration  - injects environment variables and hooks into zsh/bash
 /// using the ZDOTDIR trick (same pattern as cmux).
 class ShellIntegration {
     static let shared = ShellIntegration()
@@ -38,7 +38,7 @@ class ShellIntegration {
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
 
         let zshrc = """
-        # PairApp shell integration — injected via ZDOTDIR
+        # PairApp shell integration  - injected via ZDOTDIR
         if [[ -n "$PAIR_REAL_ZDOTDIR" ]] && [[ -f "$PAIR_REAL_ZDOTDIR/.zshrc" ]]; then
             ZDOTDIR="$PAIR_REAL_ZDOTDIR"
             source "$PAIR_REAL_ZDOTDIR/.zshrc"

@@ -11,11 +11,11 @@ struct AuthStatusView: View {
     var body: some View {
         VStack(spacing: 24) {
             Image(systemName: "checkmark.shield")
-                .font(.custom(Theme.fontName, size: 48))
+                .font(Theme.monoIcon)
                 .foregroundColor(themeManager.accent)
 
             Text("Checking Authentication")
-                .font(.custom(Theme.fontName, size: 20))
+                .font(Theme.monoHeading)
                 .foregroundColor(themeManager.text)
 
             if isChecking {
@@ -71,6 +71,9 @@ struct AuthStatusView: View {
                         RoundedRectangle(cornerRadius: 6)
                             .strokeBorder(themeManager.accent, lineWidth: 1.5)
                     )
+                    .onHover { h in
+                        if h { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
 
                     Button("Continue Anyway") {
                         onReady()
@@ -78,6 +81,9 @@ struct AuthStatusView: View {
                     .buttonStyle(.plain)
                     .font(Theme.monoSmall)
                     .foregroundColor(themeManager.textMuted)
+                    .onHover { h in
+                        if h { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
                 }
             }
         }
@@ -113,7 +119,7 @@ struct AuthRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: installed && authenticated ? "checkmark.circle.fill" : installed ? "exclamationmark.circle" : "xmark.circle")
-                .font(.custom(Theme.fontName, size: 16))
+                .font(Theme.monoTitle)
                 .foregroundColor(installed && authenticated ? themeManager.accent : installed ? themeManager.warning : themeManager.error)
 
             VStack(alignment: .leading, spacing: 2) {

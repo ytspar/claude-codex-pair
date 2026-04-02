@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Manages the active color scheme — switches between devbar theme and user's Ghostty config.
+/// Manages the active color scheme  - switches between devbar theme and user's Ghostty config.
 class ThemeManager: ObservableObject {
     static let shared = ThemeManager()
 
@@ -13,7 +13,7 @@ class ThemeManager: ObservableObject {
         didSet { reloadColors() }
     }
 
-    // Resolved colors — used throughout the UI
+    // Resolved colors  - used throughout the UI
     @Published var bg: Color = Theme.bg
     @Published var bgCard: Color = Theme.bgCard
     @Published var bgElevated: Color = Theme.bgElevated

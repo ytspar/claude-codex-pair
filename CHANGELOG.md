@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.1.1 — March 26, 2026
+## v0.1.1  - March 26, 2026
 
 ### GhosttyKit Metal Rendering
 - Switched from SwiftTerm to GhosttyKit as the only terminal backend
@@ -25,6 +25,6 @@
 - Dynamic NVM path scanning instead of hardcoded version
 - FileHandle leak fix in logger
 
-## v0.1.0 — March 26, 2026
+## v0.1.0  - March 26, 2026
 
 Initial release. See README for full feature list.

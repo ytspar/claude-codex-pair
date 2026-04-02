@@ -1,61 +1,162 @@
 import Foundation
 
 /// Per-session monitor state — each tab gets its own polling state, timeline, and review cycle.
+/// All mutable properties must be accessed through the lock to prevent data races
+/// between the pollQueue and main thread.
 class SessionMonitorState {
     let sessionId: String
-    var lastScreenHash: Int = 0
-    var stableCount = 0
-    var changeCount = 0
-    var hadInteraction = false
-    var reviewInProgress = false
-    var lastWasApprove = false
-    var reviewStartTime: Date?
-    var consecutiveErrors = 0
-    var lastResponseHash: Int = 0
-    var repeatCount = 0
-    var lastScreenText = ""
-    var emptyScreenCount = 0
-    var startTime = Date()
-    var pendingFeedback: String?
-    var pendingFeedbackStableCount = 0
-    var status: String = "idle"
-    var timeline: [ClaudeMonitor.TimelineEntry] = []
-    var cycleCount: Int = 0
-    var lastCodexResponse: String = ""
-    /// Consecutive SELECT actions on the same prompt — circuit breaker.
-    var consecutiveSelects = 0
-    /// Timestamp when the current "watching" period started (screen changes without review).
-    var watchingSince: Date?
+    private let lock = NSLock()
 
-    /// Rolling history of screen snapshots at review time — used to detect Claude looping.
-    var recentScreenSnapshots: [String] = []  // last N screen tails
+    // Poll-thread state (protected by lock)
+    private var _lastScreenHash: Int = 0
+    private var _stableCount = 0
+    private var _changeCount = 0
+    private var _hadInteraction = false
+    private var _reviewInProgress = false
+    private var _lastWasApprove = false
+    private var _reviewStartTime: Date?
+    private var _consecutiveErrors = 0
+    private var _lastResponseHash: Int = 0
+    private var _repeatCount = 0
+    private var _lastScreenText = ""
+    private var _emptyScreenCount = 0
+    private var _startTime = Date()
+    private var _pendingFeedback: String?
+    private var _pendingFeedbackStableCount = 0
+    private var _status: String = "idle"
+    private var _timeline: [ClaudeMonitor.TimelineEntry] = []
+    private var _cycleCount: Int = 0
+    private var _lastCodexResponse: String = ""
+    private var _consecutiveSelects = 0
+    private var _watchingSince: Date?
+    private var _recentScreenSnapshots: [String] = []
+    private var _similarScreenCount = 0
+    private var _sessionRemoved = false
     private let maxSnapshots = 5
 
-    /// Track how many times Claude's screen looks similar across reviews.
-    var similarScreenCount = 0
+    // Thread-safe property accessors
+    var lastScreenHash: Int {
+        get { lock.withLock { _lastScreenHash } }
+        set { lock.withLock { _lastScreenHash = newValue } }
+    }
+    var stableCount: Int {
+        get { lock.withLock { _stableCount } }
+        set { lock.withLock { _stableCount = newValue } }
+    }
+    var changeCount: Int {
+        get { lock.withLock { _changeCount } }
+        set { lock.withLock { _changeCount = newValue } }
+    }
+    var hadInteraction: Bool {
+        get { lock.withLock { _hadInteraction } }
+        set { lock.withLock { _hadInteraction = newValue } }
+    }
+    var reviewInProgress: Bool {
+        get { lock.withLock { _reviewInProgress } }
+        set { lock.withLock { _reviewInProgress = newValue } }
+    }
+    var lastWasApprove: Bool {
+        get { lock.withLock { _lastWasApprove } }
+        set { lock.withLock { _lastWasApprove = newValue } }
+    }
+    var reviewStartTime: Date? {
+        get { lock.withLock { _reviewStartTime } }
+        set { lock.withLock { _reviewStartTime = newValue } }
+    }
+    var consecutiveErrors: Int {
+        get { lock.withLock { _consecutiveErrors } }
+        set { lock.withLock { _consecutiveErrors = newValue } }
+    }
+    var lastResponseHash: Int {
+        get { lock.withLock { _lastResponseHash } }
+        set { lock.withLock { _lastResponseHash = newValue } }
+    }
+    var repeatCount: Int {
+        get { lock.withLock { _repeatCount } }
+        set { lock.withLock { _repeatCount = newValue } }
+    }
+    var lastScreenText: String {
+        get { lock.withLock { _lastScreenText } }
+        set { lock.withLock { _lastScreenText = newValue } }
+    }
+    var emptyScreenCount: Int {
+        get { lock.withLock { _emptyScreenCount } }
+        set { lock.withLock { _emptyScreenCount = newValue } }
+    }
+    var startTime: Date {
+        get { lock.withLock { _startTime } }
+        set { lock.withLock { _startTime = newValue } }
+    }
+    var pendingFeedback: String? {
+        get { lock.withLock { _pendingFeedback } }
+        set { lock.withLock { _pendingFeedback = newValue } }
+    }
+    var pendingFeedbackStableCount: Int {
+        get { lock.withLock { _pendingFeedbackStableCount } }
+        set { lock.withLock { _pendingFeedbackStableCount = newValue } }
+    }
+    var status: String {
+        get { lock.withLock { _status } }
+        set { lock.withLock { _status = newValue } }
+    }
+    var timeline: [ClaudeMonitor.TimelineEntry] {
+        get { lock.withLock { _timeline } }
+        set { lock.withLock { _timeline = newValue } }
+    }
+    var cycleCount: Int {
+        get { lock.withLock { _cycleCount } }
+        set { lock.withLock { _cycleCount = newValue } }
+    }
+    var lastCodexResponse: String {
+        get { lock.withLock { _lastCodexResponse } }
+        set { lock.withLock { _lastCodexResponse = newValue } }
+    }
+    var consecutiveSelects: Int {
+        get { lock.withLock { _consecutiveSelects } }
+        set { lock.withLock { _consecutiveSelects = newValue } }
+    }
+    var watchingSince: Date? {
+        get { lock.withLock { _watchingSince } }
+        set { lock.withLock { _watchingSince = newValue } }
+    }
+    var similarScreenCount: Int {
+        get { lock.withLock { _similarScreenCount } }
+        set { lock.withLock { _similarScreenCount = newValue } }
+    }
+    /// Set when session is closed — prevents in-flight reviews from injecting into dead sessions.
+    var sessionRemoved: Bool {
+        get { lock.withLock { _sessionRemoved } }
+        set { lock.withLock { _sessionRemoved = newValue } }
+    }
+
+    var snapshotCount: Int { lock.withLock { _recentScreenSnapshots.count } }
 
     func recordScreenSnapshot(_ screenText: String) {
-        let tail = screenText.split(separator: "\n").suffix(15).joined(separator: "\n")
-        recentScreenSnapshots.append(tail)
-        if recentScreenSnapshots.count > maxSnapshots {
-            recentScreenSnapshots.removeFirst()
+        lock.withLock {
+            let tail = screenText.split(separator: "\n").suffix(15).joined(separator: "\n")
+            _recentScreenSnapshots.append(tail)
+            if _recentScreenSnapshots.count > maxSnapshots {
+                _recentScreenSnapshots.removeFirst()
+            }
         }
     }
 
     /// Check if Claude is looping — similar screen content across multiple review cycles.
     func detectLoop() -> Bool {
-        guard recentScreenSnapshots.count >= 3 else { return false }
-        let latest = recentScreenSnapshots.last!
-        let latestWords = Set(latest.split(separator: " ").map(String.init))
-        guard !latestWords.isEmpty else { return false }
+        lock.withLock {
+            guard _recentScreenSnapshots.count >= 3 else { return false }
+            let latest = _recentScreenSnapshots.last!
+            let latestWords = Set(latest.split(separator: " ").map(String.init))
+            guard !latestWords.isEmpty else { return false }
 
-        var similarCount = 0
-        for snapshot in recentScreenSnapshots.dropLast() {
-            let words = Set(snapshot.split(separator: " ").map(String.init))
-            let overlap = Double(latestWords.intersection(words).count) / Double(max(latestWords.count, 1))
-            if overlap > 0.6 { similarCount += 1 }
+            var similarCount = 0
+            for snapshot in _recentScreenSnapshots.dropLast() {
+                let words = Set(snapshot.split(separator: " ").map(String.init))
+                let overlap = Double(latestWords.intersection(words).count) / Double(max(latestWords.count, 1))
+                if overlap > 0.6 { similarCount += 1 }
+            }
+            return similarCount >= 2
         }
-        return similarCount >= 2
     }
 
     init(sessionId: String) { self.sessionId = sessionId }
@@ -127,8 +228,12 @@ class ClaudeMonitor: ObservableObject {
         return s
     }
 
-    /// Remove state for a closed session.
+    /// Remove state for a closed session. Marks it removed so in-flight reviews abort.
     func removeSession(_ sessionId: String) {
+        if let st = sessionStates[sessionId] {
+            st.sessionRemoved = true
+            st.reviewInProgress = false
+        }
         sessionStates.removeValue(forKey: sessionId)
     }
 
@@ -151,6 +256,29 @@ class ClaudeMonitor: ObservableObject {
         timeline = s.timeline
         cycleCount = s.cycleCount
         lastCodexResponse = s.lastCodexResponse
+    }
+
+    /// Check if user is currently composing at the prompt. Must be called on main thread.
+    private func userIsComposing(_ session: PairSession) -> Bool {
+        guard session.lastInputSource == .user else { return false }
+        let screen = session.readScreen()
+        return isAtClaudePrompt(screen)
+    }
+
+    /// Safely inject Codex feedback - queues it if the user is currently typing,
+    /// and aborts if the session has been closed.
+    private func safeInject(_ session: PairSession, _ st: SessionMonitorState, text: String) {
+        guard !st.sessionRemoved else {
+            PairLog.info("[\(session.id)] Session removed - discarding Codex feedback")
+            return
+        }
+        if userIsComposing(session) {
+            PairLog.info("[\(session.id)] User is composing - queueing Codex feedback instead of injecting")
+            st.pendingFeedback = text
+            st.pendingFeedbackStableCount = 0
+            return
+        }
+        session.injectInput(text + "\n")
     }
 
     private func addTimeline(_ st: SessionMonitorState, _ event: String, _ detail: String, durationMs: Int? = nil, screenSnippet: String? = nil, codexPrompt: String? = nil, codexResponse: String? = nil, diffSummary: String? = nil) {
@@ -203,10 +331,18 @@ class ClaudeMonitor: ObservableObject {
                 PairLog.error("[\(session.id)] Screen read returned empty \(maxEmptyScreens) times")
                 DispatchQueue.main.async {
                     st.status = "error"
-                    self.addTimeline(st, "ERROR", "Terminal screen empty — process may have exited")
+                    self.addTimeline(st, "ERROR", "Terminal screen empty - process may have exited")
                 }
             }
             return
+        }
+        // Recover from error state when screen becomes non-empty again
+        if st.emptyScreenCount > 0 && st.status == "error" {
+            PairLog.info("[\(session.id)] Screen recovered from empty state")
+            DispatchQueue.main.async {
+                st.status = "watching"
+                self.syncPublished()
+            }
         }
         st.emptyScreenCount = 0
         st.lastScreenText = screenText
@@ -226,7 +362,9 @@ class ClaudeMonitor: ObservableObject {
 
         let hash = screenText.hashValue
 
-        if pollCount % 10 == 1 {
+        // Log less frequently when idle: every 10s when active, every 5min when stable
+        let logInterval = st.stableCount > 30 ? 300 : 10
+        if pollCount % logInterval == 1 {
             PairLog.info("[\(session.id)] Poll screen=\(screenText.count)chars hash=\(hash == st.lastScreenHash ? "same" : "changed") changes=\(st.changeCount) stable=\(st.stableCount)")
         }
 
@@ -276,7 +414,7 @@ class ClaudeMonitor: ObservableObject {
                     st.pendingFeedbackStableCount = 0
                     DispatchQueue.main.async {
                         self.addTimeline(st, "FEEDBACK", "Queued Codex context: \(feedback)")
-                        session.injectInput(feedback + "\n")
+                        self.safeInject(session, st, text: feedback)
                         st.hadInteraction = true
                         st.stableCount = 0
                         st.changeCount = 0
@@ -300,9 +438,25 @@ class ClaudeMonitor: ObservableObject {
                         self.addTimeline(st, "STUCK", "Claude stuck at prompt after \(changes) changes", screenSnippet: screenSnippet)
                     }
                     triggerCodexReview(screenText: screenText, session: session, st: st, claudeLooping: true)
-                } else if st.stableCount == stableThreshold && st.changeCount > 0 {
-                    PairLog.info("[\(session.id)] Skipping review: Claude is at prompt (changes=\(st.changeCount))")
-                    st.changeCount = 0
+                } else if st.stableCount >= stableThreshold && !st.reviewInProgress {
+                    // Claude is idle at prompt — dequeue next task if available
+                    if TaskQueue.shared.activeTask == nil, let nextTask = TaskQueue.shared.nextPending() {
+                        PairLog.info("[\(session.id)] Claude at prompt, dequeuing task: \(nextTask.title)")
+                        TaskQueue.shared.markActive(id: nextTask.id)
+                        st.changeCount = 0
+                        DispatchQueue.main.async {
+                            self.addTimeline(st, "TASK_STARTED", "Dequeued: \(nextTask.title)")
+                            self.safeInject(session, st, text: nextTask.prompt)
+                            st.status = "watching"
+                            st.stableCount = 0
+                            st.hadInteraction = true
+                            st.lastWasApprove = false
+                            self.syncPublished()
+                        }
+                    } else if st.changeCount > 0 {
+                        PairLog.info("[\(session.id)] Skipping review: Claude is at prompt (changes=\(st.changeCount))")
+                        st.changeCount = 0
+                    }
                 }
                 return
             }
@@ -335,7 +489,7 @@ class ClaudeMonitor: ObservableObject {
                     st.cycleCount += 1
                     let event = isLooping ? "LOOP_DETECTED" : "REVIEWING"
                     let detail = isLooping
-                        ? "Claude appears to be looping — similar screen across \(st.recentScreenSnapshots.count) reviews"
+                        ? "Claude appears to be looping — similar screen across \(st.snapshotCount) reviews"
                         : "Claude idle after \(changes) screen changes (cycle \(st.cycleCount))"
                     self.addTimeline(st, event, detail, screenSnippet: screenSnippet)
                 }
@@ -360,7 +514,7 @@ class ClaudeMonitor: ObservableObject {
         }
 
         pollQueue.async { [weak self] in
-            guard let self = self else { return }
+            guard let self = self, !st.sessionRemoved else { return }
             let result = self.callCodex(screenText: screenText, cwd: session.cwd, claudeLooping: claudeLooping)
             let screenSnippet = String(screenText.split(separator: "\n").suffix(8).joined(separator: "\n"))
 
@@ -374,6 +528,7 @@ class ClaudeMonitor: ObservableObject {
                     self.addTimeline(st, "RETRY", "Empty response, retrying (\(attempt)/\(self.maxRetries))")
                 }
                 self.pollQueue.asyncAfter(deadline: .now() + self.retryDelaySec) {
+                    guard !st.sessionRemoved else { return }
                     self.triggerCodexReview(screenText: screenText, session: session, st: st, retryCount: attempt, claudeLooping: claudeLooping)
                 }
                 return
@@ -402,9 +557,10 @@ class ClaudeMonitor: ObservableObject {
                 // Reset error counter on success
                 st.consecutiveErrors = 0
 
-                // Loop detection
+                // Loop detection - compare full response text, not hash (avoids collisions)
                 let responseHash = response.hashValue
-                if responseHash == st.lastResponseHash {
+                let lastResponse = st.lastCodexResponse
+                if response == lastResponse && !response.isEmpty {
                     st.repeatCount += 1
                     if st.repeatCount >= self.maxRepeatCount {
                         PairLog.error("[\(session.id)] Codex gave same response \(st.repeatCount) times — possible loop")
@@ -440,7 +596,7 @@ class ClaudeMonitor: ObservableObject {
                         PairLog.info("[\(session.id)] Starting queued task: \(nextTask.title)")
 
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                            session.injectInput(nextTask.prompt + "\n")
+                            self.safeInject(session, st, text: nextTask.prompt)
                             st.status = "watching"
                             st.stableCount = 0
                             st.changeCount = 0
@@ -505,7 +661,7 @@ class ClaudeMonitor: ObservableObject {
                         st.consecutiveSelects = 0
                         self.addTimeline(st, "FEEDBACK", response, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
                         st.hadInteraction = true
-                        session.injectInput(response + "\n")
+                        self.safeInject(session, st, text: response)
                     }
 
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
@@ -550,13 +706,13 @@ class ClaudeMonitor: ObservableObject {
         if tail.contains("interrupted") { return true }
         // Error indicators
         if tail.contains("error:") || tail.contains("failed to") || tail.contains("apiconnectionerror") { return true }
-        // Stalled thinking indicator
-        if tail.contains("(thinking)") || tail.contains("creating…") { return true }
-        // "What should Claude do instead?" — Claude was interrupted and is waiting
+        // "What should Claude do instead?" - Claude was interrupted and is waiting
         if tail.contains("what should claude do") { return true }
         // Rate limited or connection issues
         if tail.contains("rate limit") || tail.contains("overloaded") || tail.contains("try again") { return true }
 
+        // NOTE: Do NOT treat "(thinking)" or "creating..." as stuck - those are normal
+        // Claude work states that can take a long time legitimately.
         return false
     }
 
@@ -675,8 +831,14 @@ class ClaudeMonitor: ObservableObject {
             try process.run()
             let timeoutItem = DispatchWorkItem {
                 if process.isRunning {
-                    PairLog.error("Codex timed out after \(Int(self.codexTimeoutSec))s — killing")
+                    PairLog.error("Codex timed out after \(Int(self.codexTimeoutSec))s - killing")
                     process.terminate()
+                    // Force kill if SIGTERM didn't work after 2s
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
+                        if process.isRunning {
+                            kill(process.processIdentifier, SIGKILL)
+                        }
+                    }
                 }
             }
             DispatchQueue.global().asyncAfter(deadline: .now() + codexTimeoutSec, execute: timeoutItem)

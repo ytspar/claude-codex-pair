@@ -17,7 +17,7 @@ interface IPCResponse {
 export async function isPairTerminalRunning(): Promise<boolean> {
 	if (!fs.existsSync(SOCKET_PATH)) return false;
 	try {
-		await sendCommand({ action: "list_surfaces" });
+		await sendCommand({ action: "list_sessions" });
 		return true;
 	} catch {
 		return false;
@@ -94,7 +94,7 @@ export async function listSurfaces(): Promise<
 	Array<{ id: string; title: string; pid: number; cwd: string }>
 > {
 	try {
-		const response = await sendCommand({ action: "list_surfaces" });
+		const response = await sendCommand({ action: "list_sessions" });
 		if (response.ok && response.result) {
 			return JSON.parse(response.result);
 		}
@@ -119,7 +119,7 @@ function sendCommand(command: Record<string, unknown>, timeout = 5000): Promise<
 
 		client.on("connect", () => {
 			client.write(JSON.stringify(command));
-			// Don't end() — keep connection open for response
+			// Don't end()  - keep connection open for response
 		});
 
 		client.on("data", (chunk) => {

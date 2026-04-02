@@ -182,16 +182,19 @@ class TerminalHostView: NSView {
         }
 
         // Arrow keys, Tab, Escape must reach the terminal, not SwiftUI.
-        // SwiftUI hosting views eat these for focus navigation. Ensure the
-        // terminal is first responder so its interpretKeyEvents → doCommand
-        // path handles them (including Kitty protocol).
+        // SwiftUI hosting views eat these for focus navigation.
+        //
+        // We use interpretKeyEvents instead of calling keyDown directly, because
+        // SwiftTerm relies on the interpretKeyEvents → doCommand path to map
+        // arrow keys to moveUp/moveDown/moveLeft/moveRight selectors, which then
+        // send the correct escape sequences (both legacy and Kitty protocol).
         if let termView = subviews.first as? PairTerminalView {
             let dominated: Set<UInt16> = [123, 124, 125, 126, 48, 53]  // ←→↑↓ Tab Esc
             if dominated.contains(event.keyCode) {
                 if window?.firstResponder !== termView {
                     window?.makeFirstResponder(termView)
                 }
-                termView.keyDown(with: event)
+                termView.interpretKeyEvents([event])
                 return true
             }
         }

@@ -85,6 +85,8 @@ struct CodexPanelView: View {
             // ── Scratchpad ──
             ScratchpadView()
 
+            Rectangle().fill(tm.border).frame(height: 1)
+
             // ── Footer ──
             footer
         }
@@ -224,14 +226,14 @@ struct CodexPanelView: View {
     }
 
     func timelineColor(_ event: String) -> Color {
-        // Monochrome emerald palette — only errors break the hue.
+        // Subtle monochrome — emerald tints only, errors break the hue.
         switch event {
-        case "APPROVED":                          return tm.accent
-        case "FEEDBACK", "CODEX_RESPONSE":        return tm.accent.opacity(0.7)
-        case "REVIEWING", "STUCK":                return tm.textSecondary
-        case "SELECT":                            return tm.textMuted
-        case "CODEX_EMPTY", "ERROR", "LOOP_DETECTED": return tm.error
-        default:                                  return tm.textMuted
+        case "APPROVED":                          return tm.accent.opacity(0.8)
+        case "FEEDBACK", "CODEX_RESPONSE":        return tm.accent.opacity(0.5)
+        case "REVIEWING", "STUCK":                return tm.textMuted
+        case "SELECT":                            return tm.textMuted.opacity(0.6)
+        case "CODEX_EMPTY", "ERROR", "LOOP_DETECTED": return tm.error.opacity(0.7)
+        default:                                  return tm.textMuted.opacity(0.6)
         }
     }
 
@@ -263,10 +265,10 @@ struct CodexPanelView: View {
 
     func decisionColor(_ d: String) -> Color {
         switch d {
-        case "APPROVE": return tm.accent
-        case "FEEDBACK": return tm.accent.opacity(0.7)
-        case "CONTEXT": return tm.textSecondary
-        default: return tm.textMuted
+        case "APPROVE": return tm.accent.opacity(0.7)
+        case "FEEDBACK": return tm.accent.opacity(0.5)
+        case "CONTEXT": return tm.textMuted
+        default: return tm.textMuted.opacity(0.6)
         }
     }
 }

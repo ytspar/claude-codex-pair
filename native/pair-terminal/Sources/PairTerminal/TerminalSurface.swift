@@ -1,6 +1,6 @@
 import Foundation
 
-/// A managed terminal surface — wraps a PTY-backed shell session.
+/// A managed terminal surface  - wraps a PTY-backed shell session.
 /// Each surface corresponds to one Claude Code session.
 class TerminalSurface {
     let id: String

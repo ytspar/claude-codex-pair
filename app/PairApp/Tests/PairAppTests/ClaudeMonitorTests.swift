@@ -1,7 +1,89 @@
 import XCTest
+@testable import PairApp
 
 /// Tests for the screen change detection logic.
 final class ClaudeMonitorTests: XCTestCase {
+
+    // MARK: - Selection Prompt Detection
+
+    func testDetectsArrowMarkerPrompt() {
+        let screen = """
+        Do you want to create this file?
+        ❯ Yes
+          Yes, allow all
+          No
+        """
+        XCTAssertTrue(ClaudeMonitor.isSelectionPrompt(screen))
+    }
+
+    func testDetectsSingleGuillemotMarkerPrompt() {
+        let screen = """
+        Do you want to proceed?
+        › Yes
+          No
+        """
+        XCTAssertTrue(ClaudeMonitor.isSelectionPrompt(screen))
+    }
+
+    func testDetectsSingleGuillemotWithMultipleOptions() {
+        let screen = """
+        Claude wants to edit main.swift
+        › Allow once
+          Allow always
+          Deny
+        """
+        XCTAssertTrue(ClaudeMonitor.isSelectionPrompt(screen))
+    }
+
+    func testDetectsNumberedOptionsPrompt() {
+        let screen = """
+        Claude wants to edit foo.swift
+        1. Yes
+        2. Yes, allow all
+        3. No
+        """
+        XCTAssertTrue(ClaudeMonitor.isSelectionPrompt(screen))
+    }
+
+    func testDetectsPermissionKeywords() {
+        let screen = """
+        Do you want to allow Claude to write files?
+        Press Enter to confirm
+        """
+        XCTAssertTrue(ClaudeMonitor.isSelectionPrompt(screen))
+    }
+
+    func testCursorPromptNotDetectedAsSelection() {
+        // A bare shell prompt with ❯ followed by a blank line is NOT
+        // an interactive selection  - it's just a zsh/fish cursor prompt.
+        let screen = """
+        Claude Code v2.1.85
+        Done. Created hello.swift
+        ❯
+
+        """
+        XCTAssertFalse(ClaudeMonitor.isSelectionPrompt(screen))
+    }
+
+    func testBareGuillemotPromptNotDetectedAsSelection() {
+        // A bare › with no option text is a shell prompt, not a selection.
+        let screen = """
+        Claude Code v2.1.85
+        Done. Created hello.swift
+        ›
+
+        """
+        XCTAssertFalse(ClaudeMonitor.isSelectionPrompt(screen))
+    }
+
+    func testDoesNotDetectNormalOutput() {
+        let screen = """
+        Claude Code v2.1.85
+        Working on your task...
+        Created file: hello.swift
+        """
+        XCTAssertFalse(ClaudeMonitor.isSelectionPrompt(screen))
+    }
 
     func testScreenChangeDetected() {
         var hashes: [Int] = []
@@ -45,7 +127,7 @@ final class ClaudeMonitorTests: XCTestCase {
         var lastHash = 0
         var triggered = false
 
-        // Every screen is different — should never trigger
+        // Every screen is different  - should never trigger
         for i in 0..<20 {
             let hash = "screen \(i)".hashValue
             if hash != lastHash {
@@ -61,7 +143,7 @@ final class ClaudeMonitorTests: XCTestCase {
     }
 
     func testImmediateStability() {
-        // Screen never changes from the start — should trigger after threshold
+        // Screen never changes from the start  - should trigger after threshold
         var stableCount = 0
         let threshold = 5
         let hash = "static screen".hashValue
@@ -79,5 +161,93 @@ final class ClaudeMonitorTests: XCTestCase {
         }
 
         XCTAssertTrue(triggered)
+    }
+
+    // MARK: - selectOption Arrow Down Count
+
+    func testSelectOptionArrowDownCount() {
+        // Subclass PairSession to record calls without a real terminal
+        class MockSession: PairSession {
+            var arrowDownCounts: [Int] = []
+            var enterCount = 0
+
+            override func sendArrowDown(_ count: Int = 1) {
+                arrowDownCounts.append(count)
+            }
+            override func sendEnter() {
+                enterCount += 1
+            }
+        }
+
+        let session = MockSession(id: "test", cwd: "/tmp")
+
+        // selectOption(1) → 0 arrow downs (first option is already selected)
+        session.selectOption(1)
+        XCTAssertEqual(session.arrowDownCounts, [0],
+                       "Option 1 should send 0 arrow downs")
+
+        // selectOption(3) → 2 arrow downs
+        session.selectOption(3)
+        XCTAssertEqual(session.arrowDownCounts, [0, 2],
+                       "Option 3 should send 2 arrow downs")
+    }
+
+    // MARK: - Screen Change Detection
+
+    func testChangeThresholdPreventsEarlyReview() {
+        // Mirrors the poll() guard: stableCount == threshold && changeCount >= 10
+        // With only 3 screen changes, review should NOT trigger even after stability.
+        var lastHash = 0
+        var stableCount = 0
+        var changeCount = 0
+        var triggered = false
+        let stableThreshold = 5
+        let changeThreshold = 10
+
+        // 3 distinct screens then 6 stable polls (exceeds stableThreshold)
+        let screens = [
+            "screen A", "screen B", "screen C",
+            "screen C", "screen C", "screen C",
+            "screen C", "screen C", "screen C",
+        ]
+
+        for screen in screens {
+            let hash = screen.hashValue
+            if hash != lastHash {
+                lastHash = hash
+                stableCount = 0
+                changeCount += 1
+            } else {
+                stableCount += 1
+                if stableCount == stableThreshold && changeCount >= changeThreshold {
+                    triggered = true
+                }
+            }
+        }
+
+        XCTAssertFalse(triggered, "Should not trigger review when changeCount (\(changeCount)) < \(changeThreshold)")
+        XCTAssertEqual(changeCount, 3)
+
+        // Now simulate enough changes (10+) followed by stability  - should trigger
+        lastHash = 0; stableCount = 0; changeCount = 0; triggered = false
+
+        var moreScreens: [String] = (0..<12).map { "changing \($0)" }
+        moreScreens += Array(repeating: "changing 11", count: 6)
+
+        for screen in moreScreens {
+            let hash = screen.hashValue
+            if hash != lastHash {
+                lastHash = hash
+                stableCount = 0
+                changeCount += 1
+            } else {
+                stableCount += 1
+                if stableCount == stableThreshold && changeCount >= changeThreshold {
+                    triggered = true
+                }
+            }
+        }
+
+        XCTAssertTrue(triggered, "Should trigger review when changeCount (\(changeCount)) >= \(changeThreshold) and stable")
     }
 }

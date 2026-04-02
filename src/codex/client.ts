@@ -105,7 +105,7 @@ function spawnCodexStream(
 					onProgress?.(fullText);
 				}
 			} else if (type === "item.delta") {
-				// Streaming delta — append to running text
+				// Streaming delta  - append to running text
 				const delta = event.delta as Record<string, unknown> | undefined;
 				if (delta?.text) {
 					fullText += delta.text as string;
@@ -141,7 +141,7 @@ function spawnCodexStream(
 			reject(err);
 		});
 
-		// Close stdin immediately — prompt is passed as arg
+		// Close stdin immediately  - prompt is passed as arg
 		proc.stdin.end();
 	});
 }

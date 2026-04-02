@@ -50,7 +50,7 @@ class Dashboard {
         }
     }
 
-    /// Write Claude's PTY output — confined to the left pane by DECSLRM margins.
+    /// Write Claude's PTY output  - confined to the left pane by DECSLRM margins.
     func writePtyOutput(_ data: Data) {
         lock.lock()
         FileHandle.standardOutput.write(data)

@@ -36,7 +36,7 @@ function writeClaudeSettings(settings: ClaudeSettings): void {
 
 /**
  * Install the Stop and PermissionRequest hooks into ~/.claude/settings.json.
- * Hooks are added alongside existing hooks — removal is done by filtering our entries out.
+ * Hooks are added alongside existing hooks  - removal is done by filtering our entries out.
  */
 export function installHook(): { installed: boolean; hookCommand: string } {
 	ensureConfigDir();
@@ -76,7 +76,7 @@ export function installHook(): { installed: boolean; hookCommand: string } {
 
 /**
  * Remove the Stop hook from ~/.claude/settings.json.
- * Always removes our hook directly — backup restore is secondary.
+ * Always removes our hook directly  - backup restore is secondary.
  */
 export function removeHook(): boolean {
 	const settings = readClaudeSettings();

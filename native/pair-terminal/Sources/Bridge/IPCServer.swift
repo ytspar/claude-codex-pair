@@ -50,7 +50,7 @@ public struct SurfaceInfo: Codable {
     }
 }
 
-/// Delegate protocol — the app implements this to handle IPC actions.
+/// Delegate protocol  - the app implements this to handle IPC actions.
 public protocol IPCServerDelegate: AnyObject {
     func handleSendInput(surfaceId: String, text: String) -> IPCResponse
     func handleListSurfaces() -> [SurfaceInfo]
@@ -175,7 +175,7 @@ public class IPCServer {
             accumulated.append(contentsOf: buffer[0..<bytesRead])
             NSLog("[IPC] accumulated \(accumulated.count) bytes")
 
-            // Try to parse — if valid JSON, we have the full request
+            // Try to parse  - if valid JSON, we have the full request
             if (try? JSONDecoder().decode(IPCRequest.self, from: accumulated)) != nil {
                 NSLog("[IPC] Parsed request successfully")
                 break

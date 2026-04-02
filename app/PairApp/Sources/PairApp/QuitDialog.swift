@@ -5,6 +5,8 @@ struct QuitDialogView: View {
     let sessionCount: Int
     let onQuit: () -> Void
     let onCancel: () -> Void
+    @State private var cancelHovered = false
+    @State private var quitHovered = false
 
     var body: some View {
         VStack(spacing: 20) {
@@ -17,7 +19,7 @@ struct QuitDialogView: View {
             }
 
             Text("Quit Pair?")
-                .font(.custom(Theme.fontName, size: 20))
+                .font(Theme.monoHeading)
                 .foregroundColor(themeManager.text)
 
             Text("\(sessionCount) active Claude session\(sessionCount == 1 ? "" : "s") will be closed.")
@@ -28,27 +30,33 @@ struct QuitDialogView: View {
             HStack(spacing: 12) {
                 Text("Cancel")
                     .font(Theme.mono)
-                    .foregroundColor(themeManager.textSecondary)
+                    .foregroundColor(cancelHovered ? themeManager.text : themeManager.textSecondary)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
+                    .background(cancelHovered ? themeManager.border.opacity(0.3) : Color.clear)
                     .overlay(
                         RoundedRectangle(cornerRadius: 6)
                             .strokeBorder(themeManager.border, lineWidth: 1)
                     )
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
                     .contentShape(Rectangle())
                     .onTapGesture(perform: onCancel)
+                    .onHover { cancelHovered = $0 }
 
                 Text("Quit")
                     .font(Theme.mono)
                     .foregroundColor(themeManager.error)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
+                    .background(quitHovered ? themeManager.error.opacity(0.15) : Color.clear)
                     .overlay(
                         RoundedRectangle(cornerRadius: 6)
                             .strokeBorder(themeManager.error.opacity(0.5), lineWidth: 1)
                     )
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
                     .contentShape(Rectangle())
                     .onTapGesture(perform: onQuit)
+                    .onHover { quitHovered = $0 }
             }
         }
         .padding(32)

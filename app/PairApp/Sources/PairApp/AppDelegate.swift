@@ -1,8 +1,10 @@
 import AppKit
+import Combine
 import SwiftUI
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var mainWindow: NSWindow?
+    private var themeObserver: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -29,14 +31,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Create window
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
-            styleMask: [.titled, .closable, .resizable, .miniaturizable],
+            styleMask: [.titled, .closable, .resizable, .miniaturizable, .fullScreen],
             backing: .buffered,
             defer: false
         )
-        window.title = "Pair — Claude + Codex"
+        window.title = "Pair  - Claude + Codex"
         window.center()
         window.isReleasedWhenClosed = false
         window.backgroundColor = NSColor(ThemeManager.shared.bg)
+        window.appearance = NSAppearance(named: .darkAqua)
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .visible
         window.styleMask.insert(.fullSizeContentView)
@@ -48,12 +51,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.orderFrontRegardless()
         self.mainWindow = window
 
+        // Keep window background in sync with theme changes
+        themeObserver = ThemeManager.shared.$bg.sink { [weak window] newBg in
+            window?.backgroundColor = NSColor(newBg)
+        }
+
         NSApp.activate(ignoringOtherApps: true)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         }
+
+        // Disable App Nap - the monitor needs to stay active when idle
+        ProcessInfo.processInfo.disableAutomaticTermination("Monitoring Claude sessions")
+        ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .idleSystemSleepDisabled],
+            reason: "ClaudeMonitor polling active sessions"
+        )
 
         IPCServer.shared.start()
         ClaudeMonitor.shared.start()
@@ -73,6 +88,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return true
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        // Focus the Claude terminal (left pane) when the app window is activated
+        guard let window = mainWindow else { return }
+        if let session = SessionManager.shared.activeSession,
+           let termView = session.terminalView {
+            window.makeFirstResponder(termView)
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -95,6 +119,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // File menu
         let fileMenu = NSMenu(title: "File")
+        fileMenu.autoenablesItems = false
         fileMenu.addItem(withTitle: "New Session", action: #selector(newSession), keyEquivalent: "n")
         fileMenu.addItem(withTitle: "New Tab", action: #selector(newSession), keyEquivalent: "t")
         fileMenu.addItem(withTitle: "Close Session", action: #selector(closeSession), keyEquivalent: "w")
@@ -117,9 +142,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // View menu
         let viewMenu = NSMenu(title: "View")
+        viewMenu.autoenablesItems = false
         viewMenu.addItem(withTitle: "Toggle Theme (Devbar/Ghostty)", action: #selector(toggleTheme), keyEquivalent: "")
         viewMenu.addItem(NSMenuItem.separator())
-        viewMenu.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+        let fullScreenItem = NSMenuItem(title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+        fullScreenItem.keyEquivalentModifierMask = [.control, .command]
+        viewMenu.addItem(fullScreenItem)
 
         let viewMenuItem = NSMenuItem()
         viewMenuItem.submenu = viewMenu

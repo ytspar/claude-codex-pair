@@ -118,11 +118,13 @@ struct GhosttyConfig {
 // MARK: - Devbar fallback palette
 
 extension GhosttyConfig {
-    /// The devbar default palette — used when no Ghostty config is found.
+    /// The devbar default palette  - used when no Ghostty config is found.
     static let devbarPalette: [Int: String] = [
         0: "1e293b", 1: "ef4444", 2: "10b981", 3: "f59e0b",
         4: "3b82f6", 5: "a855f7", 6: "06b6d4", 7: "94a3b8",
-        8: "6b7280", 9: "fc8781", 10: "34d399", 11: "fbbf24",
+        // Color 8 (bright black) tinted emerald — Claude Code uses this for
+        // separator lines and muted UI elements in the input area.
+        8: "1a5c42", 9: "fc8781", 10: "34d399", 11: "fbbf24",
         12: "60a5fa", 13: "c084fc", 14: "22d3ee", 15: "f1f5f9",
     ]
 

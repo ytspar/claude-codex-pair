@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-/// Centralized logging for PairApp — writes to both os_log and a file.
+/// Centralized logging for PairApp  - writes to both os_log and a file.
 enum PairLog {
     private static let subsystem = "com.ytspar.pairapp"
     private static let logger = os.Logger(subsystem: subsystem, category: "general")

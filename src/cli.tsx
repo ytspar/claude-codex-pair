@@ -83,7 +83,7 @@ program
 		if (ptChild) {
 			console.log(green("✓ pair-terminal daemon started"));
 		} else {
-			console.log(dim("pair-terminal binary not found — using Ghostty/hook fallback"));
+			console.log(dim("pair-terminal binary not found  - using Ghostty/hook fallback"));
 		}
 
 		// Hook is ONLY active while pair start is running
@@ -115,7 +115,7 @@ program
 // ── pair stop ───────────────────────────────────────────────────────────
 program
 	.command("stop")
-	.description("Remove hooks (safety net — quitting pair start already cleans up)")
+	.description("Remove hooks (safety net  - quitting pair start already cleans up)")
 	.option("-s, --session <id>", "Clean up a specific session")
 	.action((opts: { session?: string }) => {
 		const removed = removeHook();
@@ -143,11 +143,12 @@ program
 		const releaseBinary = path.resolve(import.meta.dirname, "..", "app", "PairApp", ".build", "release", "PairApp");
 		const binary = fs.existsSync(releaseBinary) ? releaseBinary : appBinary;
 
-		// Check if binary needs rebuilding
 		const appDir = path.resolve(import.meta.dirname, "..", "app", "PairApp");
 		const sourcesDir = path.join(appDir, "Sources");
+		const appBundleBinary = "/Applications/Pair.app/Contents/MacOS/Pair";
 		const { execFileSync, execFile: ef2 } = await import("node:child_process");
 
+		// Build if sources are newer than binary
 		if (fs.existsSync(sourcesDir)) {
 			const binaryExists = fs.existsSync(binary);
 			let needsBuild = !binaryExists;
@@ -164,25 +165,31 @@ program
 				try {
 					execFileSync("swift", ["build"], { cwd: appDir, stdio: "inherit" });
 					console.log(green("✓ Build complete"));
-					// Update /Applications copy if it exists
-					if (fs.existsSync("/Applications/Pair.app/Contents/MacOS/Pair")) {
-						const built = fs.existsSync(releaseBinary) ? releaseBinary : appBinary;
-						fs.copyFileSync(built, "/Applications/Pair.app/Contents/MacOS/Pair");
-						try { execFileSync("codesign", ["--force", "--deep", "--sign", "-", "/Applications/Pair.app"]); } catch { /* */ }
-						console.log(dim("  Updated /Applications/Pair.app"));
-					}
 				} catch {
 					console.error(red("Build failed"));
 					process.exit(1);
 				}
 			}
+
+			// Always sync /Applications/Pair.app with the latest build
+			if (fs.existsSync(appBundleBinary) && fs.existsSync(binary)) {
+				const buildStat = fs.statSync(binary);
+				const appStat = fs.statSync(appBundleBinary);
+				if (buildStat.mtimeMs > appStat.mtimeMs) {
+					fs.copyFileSync(binary, appBundleBinary);
+					try { execFileSync("codesign", ["--force", "--deep", "--sign", "-", "/Applications/Pair.app"]); } catch { /* */ }
+					console.log(dim("Updated /Applications/Pair.app"));
+				}
+			}
 		}
 
 		// Check if PairApp is already running
-		const { isPairTerminalRunning, sendInputViaPairTerminal } = await import("./shared/pair-terminal.js");
+		const { isPairTerminalRunning } = await import("./shared/pair-terminal.js");
 		const appRunning = await isPairTerminalRunning();
 
-		if (!appRunning) {
+		if (appRunning) {
+			console.log(dim("PairApp already running"));
+		} else {
 			if (fs.existsSync("/Applications/Pair.app")) {
 				console.log(dim("Starting Pair.app..."));
 				ef2("open", ["/Applications/Pair.app"], () => {});
@@ -292,7 +299,7 @@ program
 		const config = loadConfig();
 		const cwd = process.cwd();
 
-		// Gather context — use specified session or most recent
+		// Gather context  - use specified session or most recent
 		const diffResult = await gitDiff(cwd);
 		let sessionContext = "";
 		const allSessions = findActiveSessions();
@@ -336,6 +343,46 @@ program
 		}
 
 		console.log(generateReport(sessionId));
+	});
+
+// ── pair screenshot ────────────────────────────────────────────────────
+program
+	.command("screenshot")
+	.description("Capture a screenshot (screen, app window, or website)")
+	.option("-a, --app <name>", "Capture a specific app window by name")
+	.option("-u, --url <url>", "Capture a website via Playwright or WebKit")
+	.option("-r, --region <x,y,w,h>", "Capture a screen region")
+	.action(async (opts: { app?: string; url?: string; region?: string }) => {
+		const { captureScreen, captureApp, captureWebsite, captureRegion } = await import("./screenshots/capture.js");
+
+		let result: string | null = null;
+
+		if (opts.url) {
+			console.log(dim(`Capturing website: ${opts.url}`));
+			result = await captureWebsite(opts.url);
+		} else if (opts.app) {
+			console.log(dim(`Capturing app: ${opts.app}`));
+			result = await captureApp(opts.app);
+		} else if (opts.region) {
+			const parts = opts.region.split(",").map(Number);
+			if (parts.length === 4 && parts.every((n) => !Number.isNaN(n))) {
+				console.log(dim(`Capturing region: ${opts.region}`));
+				result = await captureRegion(parts[0], parts[1], parts[2], parts[3]);
+			} else {
+				console.error(red("Region must be x,y,width,height (e.g. 0,0,800,600)"));
+				process.exit(1);
+			}
+		} else {
+			console.log(dim("Capturing full screen..."));
+			result = await captureScreen();
+		}
+
+		if (result) {
+			console.log(green(`✓ Screenshot saved: ${result}`));
+		} else {
+			console.error(red("Screenshot failed"));
+			process.exit(1);
+		}
 	});
 
 // ── pair config ─────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import XCTest
 
-/// Tests for the IPC protocol — verifies JSON encoding/decoding of commands.
+/// Tests for the IPC protocol  - verifies JSON encoding/decoding of commands.
 final class IPCProtocolTests: XCTestCase {
 
     func testIPCRequestEncoding() throws {

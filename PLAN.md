@@ -1,4 +1,4 @@
-# claude-codex-pair — Implementation Plan
+# claude-codex-pair  - Implementation Plan
 
 ## What This Is
 
@@ -49,7 +49,7 @@ The `Stop` hook fires when Claude thinks it's done. The hook:
 - **Ink 5** + React 18 for the TUI
 - **Commander** for subcommand routing (start/stop/status/review/report)
 - **TSX** files for Ink components, regular TS for non-UI modules
-- **execFile** (not exec) for spawning codex — no shell injection risk
+- **execFile** (not exec) for spawning codex  - no shell injection risk
 - **tsc** with `"jsx": "react-jsx"` for TSX compilation
 
 ## Project Structure
@@ -115,36 +115,36 @@ pair config set <key> <value>   # Update config
 - [ ] `git init`, initial commit
 
 ### Phase 2: Core Non-UI Modules
-- [ ] `src/types.ts` — all type definitions
-- [ ] `src/shared/config.ts` — config read/write
-- [ ] `src/shared/git.ts` — git diff helpers (execFile, not exec)
-- [ ] `src/monitor/transcript.ts` — parse Claude JSONL transcripts
-- [ ] `src/codex/client.ts` — spawn codex, capture output
-- [ ] `src/codex/prompt-builder.ts` — build review prompts
-- [ ] `src/codex/response-parser.ts` — classify APPROVE/FEEDBACK/CONTEXT
-- [ ] `src/report/logger.ts` — JSONL interaction logging
-- [ ] `src/report/generator.ts` — markdown report generation
+- [ ] `src/types.ts`  - all type definitions
+- [ ] `src/shared/config.ts`  - config read/write
+- [ ] `src/shared/git.ts`  - git diff helpers (execFile, not exec)
+- [ ] `src/monitor/transcript.ts`  - parse Claude JSONL transcripts
+- [ ] `src/codex/client.ts`  - spawn codex, capture output
+- [ ] `src/codex/prompt-builder.ts`  - build review prompts
+- [ ] `src/codex/response-parser.ts`  - classify APPROVE/FEEDBACK/CONTEXT
+- [ ] `src/report/logger.ts`  - JSONL interaction logging
+- [ ] `src/report/generator.ts`  - markdown report generation
 
 ### Phase 3: Hook System
-- [ ] `src/monitor/daemon.ts` — install/remove Stop hook in `~/.claude/settings.json`
-- [ ] `src/monitor/hook-handler.ts` — standalone script, receives stdin, orchestrates Codex call
-- [ ] `src/monitor/state.ts` — shared state file for hook↔TUI communication
-- [x] Test: manually trigger hook with mock stdin JSON (validated — hook processes input, calls Codex, returns verdict)
+- [ ] `src/monitor/daemon.ts`  - install/remove Stop hook in `~/.claude/settings.json`
+- [ ] `src/monitor/hook-handler.ts`  - standalone script, receives stdin, orchestrates Codex call
+- [ ] `src/monitor/state.ts`  - shared state file for hook↔TUI communication
+- [x] Test: manually trigger hook with mock stdin JSON (validated  - hook processes input, calls Codex, returns verdict)
 
 ### Phase 4: Ink TUI
-- [ ] `src/ui/StatusBar.tsx` — session info + cycle count
-- [ ] `src/ui/CycleLog.tsx` — scrollable interaction history
-- [ ] `src/ui/ReviewSpinner.tsx` — Codex review progress
-- [ ] `src/ui/MonitorApp.tsx` — compose into main dashboard
-- [ ] `src/monitor/session-watcher.ts` — watch for active sessions
+- [ ] `src/ui/StatusBar.tsx`  - session info + cycle count
+- [ ] `src/ui/CycleLog.tsx`  - scrollable interaction history
+- [ ] `src/ui/ReviewSpinner.tsx`  - Codex review progress
+- [ ] `src/ui/MonitorApp.tsx`  - compose into main dashboard
+- [ ] `src/monitor/session-watcher.ts`  - watch for active sessions
 
 ### Phase 5: CLI Integration
-- [ ] `src/cli.tsx` — Commander routes: start → Ink app, stop/status/review/report → non-Ink handlers
+- [ ] `src/cli.tsx`  - Commander routes: start → Ink app, stop/status/review/report → non-Ink handlers
 - [ ] Wire `pair start` to install hooks + launch TUI
 - [ ] Wire `pair stop` to remove hooks
 - [ ] Wire `pair review` for one-shot Codex review
 - [ ] Wire `pair report` for report generation
-- [x] `npm link` and test end-to-end (validated — `pair --version`, `pair config`, `pair status`, `pair review`, `pair report` all work)
+- [x] `npm link` and test end-to-end (validated  - `pair --version`, `pair config`, `pair status`, `pair review`, `pair report` all work)
 
 ### Phase 6: Polish
 - [ ] README.md with usage examples
@@ -171,7 +171,7 @@ If Codex fails, times out, or isn't installed, the hook exits 0 (Claude proceeds
 `pair start` adds our hooks to `~/.claude/settings.json`. `pair stop` (or quitting the TUI) removes them by filtering out our specific entries, preserving all other hooks. Clean uninstall guaranteed.
 
 ### PermissionRequest hook (Codex-gated)
-A second hook handles Claude's permission requests (Write, Edit, Bash). Read-only tools are auto-approved. For mutations, Codex makes a quick YES/NO decision — approving unless clearly dangerous. This prevents Claude from blocking on permission dialogs during paired sessions while keeping Codex as the safety gate.
+A second hook handles Claude's permission requests (Write, Edit, Bash). Read-only tools are auto-approved. For mutations, Codex makes a quick YES/NO decision  - approving unless clearly dangerous. This prevents Claude from blocking on permission dialogs during paired sessions while keeping Codex as the safety gate.
 
 ### Ghostty input injection
 When Codex needs to respond to Claude (answering questions, sending feedback), it types into the correct Ghostty terminal window via macOS AppleScript/System Events. This is more effective than hook block reasons because Claude receives it as real user input. Clipboard is saved/restored, focus is verified before pasting, and the system falls back to hook block if Ghostty is unavailable.
@@ -196,9 +196,9 @@ FILES CHANGED:
 
 Review the changes and respond with EXACTLY ONE of these verdicts:
 
-APPROVE — The changes look correct, complete, and safe. No issues found.
-FEEDBACK — You found issues that should be addressed. Describe each issue concisely.
-CONTEXT — You need additional context to review properly. State what's missing.
+APPROVE  - The changes look correct, complete, and safe. No issues found.
+FEEDBACK  - You found issues that should be addressed. Describe each issue concisely.
+CONTEXT  - You need additional context to review properly. State what's missing.
 
 Start your response with the verdict on its own line, then explain below.
 ```

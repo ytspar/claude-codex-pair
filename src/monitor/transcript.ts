@@ -75,7 +75,7 @@ function extractAssistantMessage(entry: Record<string, any>): TranscriptMessage 
 					input: typeof block.input === "string" ? block.input : JSON.stringify(block.input),
 				});
 			}
-			// Skip thinking blocks — they're not useful for review context
+			// Skip thinking blocks  - they're not useful for review context
 		}
 	}
 
