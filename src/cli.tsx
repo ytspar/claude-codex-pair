@@ -388,6 +388,15 @@ program
 		}
 	});
 
+// ── pair test-loop ─────────────────────────────────────────────────────
+program
+	.command("test-loop")
+	.description("Automated test: create session, inject tasks, verify monitor loop works end-to-end")
+	.action(async () => {
+		const { runTestLoop } = await import("./watch/test-loop.js");
+		await runTestLoop();
+	});
+
 // ── pair watch ─────────────────────────────────────────────────────────
 program
 	.command("watch")

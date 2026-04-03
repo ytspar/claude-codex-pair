@@ -93,7 +93,8 @@ class SessionManager: ObservableObject {
 
     func sendInput(sessionId: String, text: String) -> Bool {
         guard let session = findSession(sessionId) else { return false }
-        session.injectInput(text + "\n")
+        // Send text as-is — caller includes \n or \r if they want Enter
+        session.injectInput(text)
         return true
     }
 }

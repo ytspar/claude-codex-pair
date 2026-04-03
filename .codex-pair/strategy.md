@@ -1,12 +1,17 @@
 # Codex Strategy for claude-codex-pair
-Updated: 2026-04-03 18:45
+Updated: 2026-04-03 19:11
 
 ## Effectiveness
 - Total interventions: 50
-- Improved: 0 (0%)
+- Improved: 3 (6%)
 - Regressed: 0 (0%)
 - Loop detections: 50
-- Avg review duration: 1757ms
+- Avg review duration: 31803ms
+
+## What Worked
+- 2
+- 1
+- 2
 
 
 ## Unmatched Prompt Patterns (improve detection heuristics)

@@ -412,23 +412,9 @@ class ClaudeMonitor: ObservableObject {
         let atPrompt = isAtClaudePrompt(screenText) || isInterruptedPrompt(screenText)
         let promptEmpty = isPromptEmpty(screenText)
 
-        // CRITICAL: If the user is the last person who typed, NEVER inject.
-        // The prompt belongs to the user — even if they walked away hours ago.
-        // Only inject when lastInputSource is .machine (our own prior injection or
-        // Claude's output), meaning no human has touched the keyboard since.
-        let userOwnsPrompt = session.lastInputSource == .user
-        if userOwnsPrompt && !promptEmpty {
-            // User typed text at the prompt — never overwrite it, no timeout
-            return false
-        }
-        if userOwnsPrompt && promptEmpty {
-            // User was last to type but prompt is empty (they may have deleted text
-            // or just pressed Enter). Allow injection only if enough time passed
-            // to be confident they're not mid-thought.
-            let timeSinceUser = -session.lastMachineInputTime.timeIntervalSinceNow
-            if timeSinceUser < 30 { return false }
-        }
-
+        // CARDINAL RULE: Only inject when the prompt is empty. Period.
+        // If there's any text at the prompt — from user, from a failed injection,
+        // from anything — do not touch it. No timeouts, no heuristics.
         guard atPrompt && promptEmpty else { return false }
 
         // If task queue is running, complete the active task and stage the next one.
@@ -830,17 +816,23 @@ class ClaudeMonitor: ObservableObject {
 
     private func handleFeedback(response: String, screenText: String, session: PairSession, st: SessionMonitorState, isSelection: Bool, durationMs: Int?, screenSnippet: String, prompt: String, diffSummary: String?) {
         // Phase is already .feedback from caller's transition
+
+        // CARDINAL RULE: Re-read the screen RIGHT NOW. If the prompt is not empty,
+        // someone (user or prior injection) has text there. Do not touch it.
+        let currentScreen = session.readScreen()
+        if !isPromptEmpty(currentScreen) && !isSelection {
+            PairLog.info("[\(session.id)] Prompt not empty — discarding Codex feedback to protect user input")
+            addTimeline(st, "SKIPPED", "Prompt not empty — protected user input", source: .monitor, durationMs: durationMs, codexPrompt: prompt, codexResponse: response)
+            return
+        }
+
         let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
         let isNumericResponse = Int(trimmed) != nil
         let userTypedDuringReview: Bool = {
             guard let start = st.reviewStartTime else { return false }
             return session.lastInputSource == .user && session.lastMachineInputTime < start
         }()
-        // CRITICAL: If the user put text at the prompt, they own it. No timeout.
-        // Also defer if user typed recently (even if prompt is now empty — they may be thinking).
-        let promptHasUserText = session.lastInputSource == .user && !isPromptEmpty(screenText)
-        let userRecentlyActive = session.lastInputSource == .user && -session.lastMachineInputTime.timeIntervalSinceNow < 15
-        let userOwnsInput = promptHasUserText || userRecentlyActive
+        let userOwnsInput = session.lastInputSource == .user
         let isAcceptEdits = Self.isAcceptEditsPrompt(screenText)
         let codexWantsApprove = response.uppercased().contains("APPROVE") || isNumericResponse
 
@@ -943,12 +935,11 @@ class ClaudeMonitor: ObservableObject {
     // MARK: - Backoff management
 
     private func updateBackoff(_ st: SessionMonitorState) {
-        if st.consecutiveUnhelpful >= backoffThreshold {
-            let exponent = Double(st.consecutiveUnhelpful - backoffThreshold)
-            st.backoffMultiplier = min(pow(2.0, exponent), maxBackoffMultiplier)
-            PairLog.info("[\(st.sessionId)] Backoff: \(st.consecutiveUnhelpful) unhelpful reviews → \(String(format: "%.1f", st.backoffMultiplier))x (effective threshold: \(st.effectiveStableThreshold)s)")
-            addTimeline(st, "BACKOFF", "Slowing down: \(st.consecutiveUnhelpful) consecutive reviews without improvement → waiting \(st.effectiveStableThreshold)s between reviews")
-        }
+        // Backoff disabled: the system should always keep moving forward.
+        // Claude conversations often don't produce git commits (questions,
+        // discussions, planning) — that's normal, not a reason to slow down.
+        // The backoff counter is still tracked for UI/logging but multiplier stays at 1.
+        st.backoffMultiplier = 1.0
     }
 
     // MARK: - Screen detection helpers (immutable eval layer)
