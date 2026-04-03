@@ -179,15 +179,27 @@ class TerminalHostView: NSView {
                     return true
                 }
             }
+
+            // ⌘W → close session (only when terminal is focused)
+            if chars == "w" && !event.modifierFlags.contains(.shift) {
+                if let id = SessionManager.shared.activeSessionId {
+                    SessionManager.shared.removeSession(id)
+                }
+                return true
+            }
         }
 
         // Arrow keys, Tab, Escape must reach the terminal, not SwiftUI.
         // SwiftUI hosting views eat these for focus navigation.
         //
-        // We use interpretKeyEvents instead of calling keyDown directly, because
-        // SwiftTerm relies on the interpretKeyEvents → doCommand path to map
-        // arrow keys to moveUp/moveDown/moveLeft/moveRight selectors, which then
-        // send the correct escape sequences (both legacy and Kitty protocol).
+        // We handle these locally via interpretKeyEvents rather than returning
+        // false (which relies on responder-chain delivery that fails when
+        // termView isn't first responder) or calling keyDown directly (which
+        // bypasses the interpretKeyEvents → doCommand path SwiftTerm needs).
+        //
+        // Note: this skips SwiftTerm's Kitty fast-path for functional keys,
+        // so modified arrows (Shift/Ctrl/Option+arrow) may lose modifier
+        // metadata. Plain arrows work correctly via doCommand.
         if let termView = subviews.first as? PairTerminalView {
             let dominated: Set<UInt16> = [123, 124, 125, 126, 48, 53]  // ←→↑↓ Tab Esc
             if dominated.contains(event.keyCode) {

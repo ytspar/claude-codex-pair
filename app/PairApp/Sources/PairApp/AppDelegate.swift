@@ -72,6 +72,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         IPCServer.shared.start()
         ClaudeMonitor.shared.start()
+
+        // Auto-restore sessions from previous run (e.g., after rebuild)
+        SessionManager.shared.restoreSessions()
     }
 
     var quitConfirmed = false
@@ -100,6 +103,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Persist session directories for restore after rebuild
+        SessionManager.shared.persistSessionDirs()
         IPCServer.shared.stop()
         SessionManager.shared.stopAll()
     }
@@ -122,7 +127,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         fileMenu.autoenablesItems = false
         fileMenu.addItem(withTitle: "New Session", action: #selector(newSession), keyEquivalent: "n")
         fileMenu.addItem(withTitle: "New Tab", action: #selector(newSession), keyEquivalent: "t")
-        fileMenu.addItem(withTitle: "Close Session", action: #selector(closeSession), keyEquivalent: "w")
+        fileMenu.addItem(withTitle: "Close Session", action: #selector(closeSession), keyEquivalent: "")
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(withTitle: "Close Window", action: #selector(closeWindow), keyEquivalent: "W")
 
@@ -139,6 +144,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let editMenuItem = NSMenuItem()
         editMenuItem.submenu = editMenu
         mainMenu.addItem(editMenuItem)
+
+        // Dev menu
+        let devMenu = NSMenu(title: "Dev")
+        devMenu.autoenablesItems = false
+        let rebuildItem = NSMenuItem(title: "Rebuild & Relaunch", action: #selector(rebuildAndRelaunch), keyEquivalent: "r")
+        rebuildItem.keyEquivalentModifierMask = [.command, .shift]
+        devMenu.addItem(rebuildItem)
+
+        let devMenuItem = NSMenuItem()
+        devMenuItem.submenu = devMenu
+        mainMenu.addItem(devMenuItem)
 
         // View menu
         let viewMenu = NSMenu(title: "View")
@@ -186,5 +202,49 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func newSession() {
         SessionManager.shared.showProjectPicker = true
+    }
+
+    @objc func rebuildAndRelaunch() {
+        // Persist sessions, then spawn the rebuild script and quit
+        SessionManager.shared.persistSessionDirs()
+
+        let scriptPath = findRebuildScript()
+        guard let script = scriptPath else {
+            PairLog.error("rebuild.sh not found")
+            return
+        }
+
+        PairLog.info("Rebuild & relaunch: \(script)")
+
+        // Launch rebuild script in background, then quit
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [script, "--run"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+
+        // Give the script a moment to start, then quit cleanly
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            self.quitConfirmed = true
+            NSApp.terminate(nil)
+        }
+    }
+
+    private func findRebuildScript() -> String? {
+        // Walk up from the binary to find the project root
+        let binary = ProcessInfo.processInfo.arguments[0]
+        var dir = URL(fileURLWithPath: binary).deletingLastPathComponent()
+        for _ in 0..<10 {
+            let candidate = dir.appendingPathComponent("scripts/rebuild.sh").path
+            if FileManager.default.fileExists(atPath: candidate) { return candidate }
+            dir = dir.deletingLastPathComponent()
+        }
+        // Fallback: check common locations
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let paths = [
+            "\(home)/git/ytspar/claude-codex-pair/scripts/rebuild.sh",
+        ]
+        return paths.first(where: { FileManager.default.fileExists(atPath: $0) })
     }
 }

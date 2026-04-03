@@ -39,38 +39,49 @@ class TaskQueue: ObservableObject {
     private init() { load() }
 
     // MARK: - Mutations
+    // All mutations dispatch to main thread to protect @Published items.
+    // Safe to call from any thread.
 
     func addTask(title: String = "", prompt: String) {
-        items.append(TaskItem(title: title, prompt: prompt))
-        save()
+        onMain {
+            self.items.append(TaskItem(title: title, prompt: prompt))
+            self.save()
+        }
     }
 
     func removeTask(id: UUID) {
-        items.removeAll { $0.id == id }
-        save()
+        onMain {
+            self.items.removeAll { $0.id == id }
+            self.save()
+        }
     }
 
     func moveTask(from source: IndexSet, to destination: Int) {
-        var mutable = items
-        mutable.move(fromOffsets: source, toOffset: destination)
-        items = mutable
-        save()
+        onMain {
+            var mutable = self.items
+            mutable.move(fromOffsets: source, toOffset: destination)
+            self.items = mutable
+            self.save()
+        }
     }
 
     func moveToTop(id: UUID) {
-        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
-        let item = items.remove(at: idx)
-        // Insert after any active task
-        let insertAt = items.firstIndex(where: { $0.status != .active }) ?? 0
-        items.insert(item, at: insertAt)
-        save()
+        onMain {
+            guard let idx = self.items.firstIndex(where: { $0.id == id }) else { return }
+            let item = self.items.remove(at: idx)
+            let insertAt = self.items.firstIndex(where: { $0.status != .active }) ?? 0
+            self.items.insert(item, at: insertAt)
+            self.save()
+        }
     }
 
     func updateTask(id: UUID, title: String? = nil, prompt: String? = nil) {
-        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
-        if let title = title { items[idx].title = title }
-        if let prompt = prompt { items[idx].prompt = prompt }
-        save()
+        onMain {
+            guard let idx = self.items.firstIndex(where: { $0.id == id }) else { return }
+            if let title = title { self.items[idx].title = title }
+            if let prompt = prompt { self.items[idx].prompt = prompt }
+            self.save()
+        }
     }
 
     func nextPending() -> TaskItem? {
@@ -78,39 +89,60 @@ class TaskQueue: ObservableObject {
     }
 
     func markActive(id: UUID) {
-        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
-        items[idx].status = .active
-        save()
+        onMain {
+            guard let idx = self.items.firstIndex(where: { $0.id == id }) else { return }
+            self.items[idx].status = .active
+            self.save()
+        }
     }
 
     func markCompleted(id: UUID) {
-        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
-        items[idx].status = .completed
-        items[idx].completedAt = Date()
-        save()
+        onMain {
+            guard let idx = self.items.firstIndex(where: { $0.id == id }) else { return }
+            self.items[idx].status = .completed
+            self.items[idx].completedAt = Date()
+            self.save()
+        }
     }
 
     func markFailed(id: UUID) {
-        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
-        items[idx].status = .failed
-        save()
+        onMain {
+            guard let idx = self.items.firstIndex(where: { $0.id == id }) else { return }
+            self.items[idx].status = .failed
+            self.save()
+        }
     }
 
     func retry(id: UUID) {
-        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
-        items[idx].status = .pending
-        items[idx].completedAt = nil
-        save()
+        onMain {
+            guard let idx = self.items.firstIndex(where: { $0.id == id }) else { return }
+            self.items[idx].status = .pending
+            self.items[idx].completedAt = nil
+            self.save()
+        }
     }
 
     func clearCompleted() {
-        items.removeAll { $0.status == .completed }
-        save()
+        onMain {
+            self.items.removeAll { $0.status == .completed }
+            self.save()
+        }
     }
 
     func clearAll() {
-        items.removeAll()
-        save()
+        onMain {
+            self.items.removeAll()
+            self.save()
+        }
+    }
+
+    /// Dispatch to main thread; run synchronously if already on main to avoid deadlocks.
+    private func onMain(_ work: @escaping () -> Void) {
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.async(execute: work)
+        }
     }
 
     // MARK: - Persistence

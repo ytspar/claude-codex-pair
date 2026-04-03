@@ -229,12 +229,19 @@ class ClaudeMonitor: ObservableObject {
     }
 
     /// Remove state for a closed session. Marks it removed so in-flight reviews abort.
+    /// Also resets any active task to pending so it doesn't block the queue.
     func removeSession(_ sessionId: String) {
         if let st = sessionStates[sessionId] {
             st.sessionRemoved = true
             st.reviewInProgress = false
         }
         sessionStates.removeValue(forKey: sessionId)
+
+        // Don't leave a task stuck in .active when its session is gone
+        if let active = TaskQueue.shared.activeTask {
+            PairLog.info("Session \(sessionId) removed — resetting active task to pending: \(active.title)")
+            TaskQueue.shared.retry(id: active.id)
+        }
     }
 
     /// Call when the active tab changes to refresh the Codex panel.
@@ -329,9 +336,14 @@ class ClaudeMonitor: ObservableObject {
             st.emptyScreenCount += 1
             if st.emptyScreenCount == maxEmptyScreens {
                 PairLog.error("[\(session.id)] Screen read returned empty \(maxEmptyScreens) times")
+                // Reset active task — terminal is dead
+                if let active = TaskQueue.shared.activeTask {
+                    TaskQueue.shared.retry(id: active.id)
+                    PairLog.info("[\(session.id)] Terminal dead — resetting active task to pending: \(active.title)")
+                }
                 DispatchQueue.main.async {
                     st.status = "error"
-                    self.addTimeline(st, "ERROR", "Terminal screen empty - process may have exited")
+                    self.addTimeline(st, "ERROR", "Terminal screen empty — process may have exited")
                 }
             }
             return
@@ -439,16 +451,32 @@ class ClaudeMonitor: ObservableObject {
                     }
                     triggerCodexReview(screenText: screenText, session: session, st: st, claudeLooping: true)
                 } else if st.stableCount >= stableThreshold && !st.reviewInProgress {
-                    // Claude is idle at prompt — dequeue next task if available
-                    if TaskQueue.shared.activeTask == nil, let nextTask = TaskQueue.shared.nextPending() {
-                        PairLog.info("[\(session.id)] Claude at prompt, dequeuing task: \(nextTask.title)")
-                        TaskQueue.shared.markActive(id: nextTask.id)
-                        st.changeCount = 0
+                    // Claude is idle at prompt — dequeue next task if available.
+                    // Only dequeue if the prompt is empty (no user-typed text) and
+                    // the user hasn't recently interacted.
+                    let promptEmpty = isPromptEmpty(screenText)
+                    let userRecentlyTyped = session.lastInputSource == .user &&
+                        -session.lastMachineInputTime.timeIntervalSinceNow < 5
+                    // Dequeue atomically on main thread to avoid races between
+                    // poll ticks reading stale queue state.
+                    if promptEmpty && !userRecentlyTyped {
                         DispatchQueue.main.async {
+                            // Auto-complete stale active task
+                            if let stale = TaskQueue.shared.activeTask {
+                                PairLog.info("[\(session.id)] Active task at empty prompt, marking completed: \(stale.title)")
+                                TaskQueue.shared.markCompleted(id: stale.id)
+                            }
+
+                            // Dequeue next
+                            guard TaskQueue.shared.activeTask == nil,
+                                  let nextTask = TaskQueue.shared.nextPending() else { return }
+                            PairLog.info("[\(session.id)] Claude at prompt, dequeuing task: \(nextTask.title)")
+                            TaskQueue.shared.markActive(id: nextTask.id)
                             self.addTimeline(st, "TASK_STARTED", "Dequeued: \(nextTask.title)")
                             self.safeInject(session, st, text: nextTask.prompt)
                             st.status = "watching"
                             st.stableCount = 0
+                            st.changeCount = 0
                             st.hadInteraction = true
                             st.lastWasApprove = false
                             self.syncPublished()
@@ -580,6 +608,23 @@ class ClaudeMonitor: ObservableObject {
                 PairLog.info("[\(session.id)] Codex (\(durationMs ?? 0)ms): \(response.prefix(150)) [selection=\(isSelection)]")
                 st.lastCodexResponse = response
 
+                // Record decision to project ledger
+                let ledger = CodexLedger(projectDir: session.cwd)
+                let decision = response.uppercased().contains("APPROVE") ? "APPROVE" : (isSelection ? "SELECT" : "FEEDBACK")
+                let screenTail = String(screenText.split(separator: "\n").suffix(10).joined(separator: "\n"))
+                ledger.recordDecision(
+                    cycle: st.cycleCount,
+                    decision: decision,
+                    response: response,
+                    screenTail: screenTail,
+                    diffSummary: diffSummary,
+                    wasLooping: claudeLooping,
+                    durationMs: durationMs ?? 0
+                )
+
+                // Extract LEARN: notes and save to project context
+                Self.extractLearnings(from: response, ledger: ledger)
+
                 if response.uppercased().contains("APPROVE") {
                     self.addTimeline(st, "APPROVED", response, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
 
@@ -589,21 +634,14 @@ class ClaudeMonitor: ObservableObject {
                         PairLog.info("[\(session.id)] Task completed: \(activeTask.title)")
                     }
 
-                    // Check for next queued task
-                    if let nextTask = TaskQueue.shared.nextPending() {
-                        TaskQueue.shared.markActive(id: nextTask.id)
-                        self.addTimeline(st, "TASK_STARTED", nextTask.title)
-                        PairLog.info("[\(session.id)] Starting queued task: \(nextTask.title)")
-
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                            self.safeInject(session, st, text: nextTask.prompt)
-                            st.status = "watching"
-                            st.stableCount = 0
-                            st.changeCount = 0
-                            st.hadInteraction = true
-                            st.lastWasApprove = false
-                            self.syncPublished()
-                        }
+                    // Check for next queued task — but don't inject immediately.
+                    // Let Claude return to the prompt first; the poll loop's
+                    // prompt-idle dequeue will pick it up safely.
+                    if TaskQueue.shared.nextPending() != nil {
+                        st.lastWasApprove = false  // allow prompt-idle dequeue
+                        st.hadInteraction = false
+                        st.status = "watching"
+                        PairLog.info("[\(session.id)] More tasks queued — waiting for prompt before dequeue")
                     } else {
                         st.lastWasApprove = true
                         st.hadInteraction = false
@@ -653,7 +691,7 @@ class ClaudeMonitor: ObservableObject {
                     } else if userTypedDuringReview {
                         st.consecutiveSelects = 0
                         PairLog.info("[\(session.id)] User typed during review — queueing Codex feedback")
-                        st.pendingFeedback = response
+                        st.pendingFeedback = Self.stripLearnings(response)
                         st.pendingFeedbackStableCount = 0
                         self.addTimeline(st, "FEEDBACK", "Queued (user also responded): \(response)", durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
                         st.hadInteraction = true
@@ -661,7 +699,11 @@ class ClaudeMonitor: ObservableObject {
                         st.consecutiveSelects = 0
                         self.addTimeline(st, "FEEDBACK", response, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
                         st.hadInteraction = true
-                        self.safeInject(session, st, text: response)
+                        // Strip LEARN: lines before injecting into Claude
+                        let cleaned = Self.stripLearnings(response)
+                        if !cleaned.isEmpty {
+                            self.safeInject(session, st, text: cleaned)
+                        }
                     }
 
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
@@ -716,14 +758,43 @@ class ClaudeMonitor: ObservableObject {
         return false
     }
 
+    /// Check if the Claude prompt line has no user-typed text after it.
+    /// Returns false if there's pasted text, partial input, or "[Pasted text" indicator.
+    private func isPromptEmpty(_ screenText: String) -> Bool {
+        let lines = screenText.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+        // Check for "[Pasted text" anywhere — Claude shows this for multi-line pastes
+        if lines.contains(where: { $0.contains("[Pasted text") }) { return false }
+        guard let lastNonEmpty = lines.last(where: { !$0.isEmpty }) else { return true }
+        // Prompt line should be just "❯" or "> " with nothing substantial after
+        if let range = lastNonEmpty.range(of: "❯") {
+            let after = lastNonEmpty[range.upperBound...].trimmingCharacters(in: .whitespaces)
+            return after.isEmpty
+        }
+        if lastNonEmpty.hasSuffix(">") || lastNonEmpty.hasSuffix("> ") { return true }
+        return true
+    }
+
     private func isAtClaudePrompt(_ screenText: String) -> Bool {
         let lines = screenText.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
         guard let lastNonEmpty = lines.last(where: { !$0.isEmpty }) else { return false }
-        let isPrompt = lastNonEmpty.hasPrefix("❯") ||
-                       lastNonEmpty.hasSuffix(">") ||
-                       lastNonEmpty.hasSuffix("> ") ||
-                       lastNonEmpty.contains("❯")
-        return isPrompt && !Self.isSelectionPrompt(screenText)
+
+        // Claude Code uses ❯ as its prompt character
+        let isClaudePrompt = lastNonEmpty.hasPrefix("❯") || lastNonEmpty.contains("❯")
+
+        // Bare ">" or "> " could be a shell prompt after Claude exited.
+        // Only treat it as Claude's prompt if there's other Claude UI on screen
+        // (e.g., the status bar, tool usage indicators, or recent Claude output).
+        let isBareAngle = !isClaudePrompt &&
+            (lastNonEmpty.hasSuffix(">") || lastNonEmpty.hasSuffix("> "))
+        if isBareAngle {
+            let lower = screenText.lowercased()
+            let hasClaudeUI = lower.contains("claude") || lower.contains("tool use")
+                || lower.contains("compact") || lower.contains("autocompact")
+                || lower.contains("cost:") || lower.contains("tokens")
+            if !hasClaudeUI { return false }
+        }
+
+        return (isClaudePrompt || isBareAngle) && !Self.isSelectionPrompt(screenText)
     }
 
     /// Detect "accept edits on (shift+tab to cycle)" — needs Enter, not arrow keys.
@@ -765,6 +836,21 @@ class ClaudeMonitor: ObservableObject {
         let lastLines = screenText.split(separator: "\n").suffix(40).joined(separator: "\n")
         let isSelection = Self.isSelectionPrompt(screenText)
         let diffSummary = Self.gitDiffSummary(cwd: cwd)
+        let diffDetail = Self.gitDiffDetail(cwd: cwd)
+        let ledger = CodexLedger(projectDir: cwd)
+
+        // Build context from project learnings and recent history
+        let projectContext = ledger.readContext()
+        let recentHistory = ledger.recentHistory()
+
+        var contextBlock = ""
+        if let ctx = projectContext {
+            let trimmed = String(ctx.suffix(1000))
+            contextBlock += "\n--- PROJECT CONTEXT ---\n\(trimmed)\n"
+        }
+        if let history = recentHistory {
+            contextBlock += "\n--- YOUR RECENT DECISIONS ---\n\(history)\n"
+        }
 
         let prompt: String
         if isSelection {
@@ -800,15 +886,26 @@ class ClaudeMonitor: ObservableObject {
             Do NOT just say "keep going" or approve — that will perpetuate the loop.
 
             """ : ""
+
+            let diffBlock: String
+            if let diff = diffDetail, !diff.isEmpty {
+                diffBlock = "\n--- GIT DIFF (changes since last review) ---\n\(diff)\n"
+            } else {
+                diffBlock = ""
+            }
+
             prompt = """
             You are acting as the human operator for Claude Code. Claude has paused. \
             Here is the terminal output:
 
             \(lastLines)
-            \(loopWarning)
+            \(contextBlock)\(diffBlock)\(loopWarning)
             If Claude asked a question, answer it directly. Pick the most thorough option. \
             If Claude finished work, reply with just: APPROVE \
-            Only output the text to type into Claude.
+            Only output the text to type into Claude. \
+            If you notice a pattern worth remembering for future reviews (e.g., this project \
+            uses a specific framework, testing approach, or has recurring issues), add a brief \
+            note prefixed with "LEARN:" at the end of your response.
             """
         }
 
@@ -879,11 +976,49 @@ class ClaudeMonitor: ObservableObject {
         }
     }
 
+    /// Extract "LEARN:" notes from Codex's response and append to project context.
+    /// Strips the LEARN: prefix from the response before it's sent to Claude.
+    private static func extractLearnings(from response: String, ledger: CodexLedger) {
+        let lines = response.split(separator: "\n")
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.uppercased().hasPrefix("LEARN:") {
+                let learning = String(trimmed.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+                if !learning.isEmpty {
+                    PairLog.info("Codex learning: \(learning)")
+                    ledger.appendLearning(learning)
+                }
+            }
+        }
+    }
+
+    /// Strip LEARN: lines from a response before injecting into Claude.
+    private static func stripLearnings(_ response: String) -> String {
+        response.split(separator: "\n")
+            .filter { !$0.trimmingCharacters(in: .whitespaces).uppercased().hasPrefix("LEARN:") }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private static func gitDiffSummary(cwd: String) -> String? {
+        runGit(["diff", "--stat", "--no-color"], cwd: cwd)
+    }
+
+    /// Full diff content (truncated to keep prompt manageable).
+    private static func gitDiffDetail(cwd: String) -> String? {
+        guard let full = runGit(["diff", "--no-color", "-U2"], cwd: cwd) else { return nil }
+        // Truncate to ~2000 chars to avoid blowing up the prompt
+        if full.count > 2000 {
+            return String(full.prefix(2000)) + "\n... (diff truncated)"
+        }
+        return full
+    }
+
+    private static func runGit(_ args: [String], cwd: String) -> String? {
         let process = Process()
         let stdout = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = ["diff", "--stat", "--no-color"]
+        process.arguments = args
         process.currentDirectoryURL = URL(fileURLWithPath: cwd)
         process.standardOutput = stdout
         process.standardError = Pipe()

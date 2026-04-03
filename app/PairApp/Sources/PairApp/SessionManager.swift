@@ -10,6 +10,11 @@ class SessionManager: ObservableObject {
         didSet { PairLog.info("Active session: \(oldValue ?? "nil") → \(activeSessionId ?? "nil")") }
     }
 
+    private static let sessionFile: String = {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return "\(home)/.claude-codex-pair/sessions.json"
+    }()
+
     var activeSession: PairSession? {
         if let id = activeSessionId { return sessions.first { $0.id == id } }
         return sessions.first
@@ -39,6 +44,46 @@ class SessionManager: ObservableObject {
     }
 
     func stopAll() { sessions.removeAll() }
+
+    /// Save current session directories so they can be restored after rebuild.
+    func persistSessionDirs() {
+        let dirs = sessions.map { $0.cwd }
+        guard !dirs.isEmpty else { return }
+        let data: [String: Any] = [
+            "cwds": dirs,
+            "activeIndex": sessions.firstIndex(where: { $0.id == activeSessionId }) ?? 0
+        ]
+        if let json = try? JSONSerialization.data(withJSONObject: data) {
+            try? json.write(to: URL(fileURLWithPath: Self.sessionFile))
+        }
+        PairLog.info("Persisted \(dirs.count) session dirs for restore")
+    }
+
+    /// Restore sessions from a previous run. Returns true if sessions were restored.
+    @discardableResult
+    func restoreSessions() -> Bool {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: Self.sessionFile)),
+              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let cwds = dict["cwds"] as? [String],
+              !cwds.isEmpty else { return false }
+        let activeIndex = dict["activeIndex"] as? Int ?? 0
+
+        // Clean up the restore file so we don't re-restore on next launch
+        try? FileManager.default.removeItem(atPath: Self.sessionFile)
+
+        for cwd in cwds {
+            guard FileManager.default.fileExists(atPath: cwd) else { continue }
+            createSession(cwd: cwd)
+        }
+
+        // Restore active tab
+        if activeIndex < sessions.count {
+            activeSessionId = sessions[activeIndex].id
+        }
+
+        PairLog.info("Restored \(sessions.count) sessions from previous run")
+        return true
+    }
 
     func sendInput(sessionId: String, text: String) -> Bool {
         guard let session = findSession(sessionId) else { return false }
