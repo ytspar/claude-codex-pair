@@ -411,9 +411,25 @@ class ClaudeMonitor: ObservableObject {
         guard !st.sessionRemoved else { return false }
         let atPrompt = isAtClaudePrompt(screenText) || isInterruptedPrompt(screenText)
         let promptEmpty = isPromptEmpty(screenText)
-        let userRecentlyTyped = session.lastInputSource == .user && -session.lastMachineInputTime.timeIntervalSinceNow < 5
 
-        guard atPrompt && promptEmpty && !userRecentlyTyped else { return false }
+        // CRITICAL: If the user is the last person who typed, NEVER inject.
+        // The prompt belongs to the user — even if they walked away hours ago.
+        // Only inject when lastInputSource is .machine (our own prior injection or
+        // Claude's output), meaning no human has touched the keyboard since.
+        let userOwnsPrompt = session.lastInputSource == .user
+        if userOwnsPrompt && !promptEmpty {
+            // User typed text at the prompt — never overwrite it, no timeout
+            return false
+        }
+        if userOwnsPrompt && promptEmpty {
+            // User was last to type but prompt is empty (they may have deleted text
+            // or just pressed Enter). Allow injection only if enough time passed
+            // to be confident they're not mid-thought.
+            let timeSinceUser = -session.lastMachineInputTime.timeIntervalSinceNow
+            if timeSinceUser < 30 { return false }
+        }
+
+        guard atPrompt && promptEmpty else { return false }
 
         // If task queue is running, complete the active task and stage the next one.
         // This handles the case where Claude finished work and is sitting at the prompt.
@@ -605,7 +621,13 @@ class ClaudeMonitor: ObservableObject {
             // For everything else, apply normal thresholds.
             let isBlocking = Self.isInteractivePrompt(screenText)
             let effectiveThreshold = isBlocking ? promptStableThreshold : st.effectiveStableThreshold
-            let userIsTyping = session.lastInputSource == .user && -session.lastMachineInputTime.timeIntervalSinceNow < 10
+
+            // CRITICAL: If the user typed text that's sitting at the prompt, the user
+            // owns that input. Never review/inject until the prompt is empty again.
+            // For empty-prompt scenarios, still respect a typing cooldown.
+            let userOwnsPrompt = session.lastInputSource == .user && !isPromptEmpty(screenText)
+            if userOwnsPrompt { return }
+            let userIsTyping = session.lastInputSource == .user && -session.lastMachineInputTime.timeIntervalSinceNow < 15
 
             guard st.stableCount >= effectiveThreshold && !st.reviewInProgress && !userIsTyping else { return }
 
@@ -814,7 +836,11 @@ class ClaudeMonitor: ObservableObject {
             guard let start = st.reviewStartTime else { return false }
             return session.lastInputSource == .user && session.lastMachineInputTime < start
         }()
-        let userOwnsInput = session.lastInputSource == .user && -session.lastMachineInputTime.timeIntervalSinceNow < 10
+        // CRITICAL: If the user put text at the prompt, they own it. No timeout.
+        // Also defer if user typed recently (even if prompt is now empty — they may be thinking).
+        let promptHasUserText = session.lastInputSource == .user && !isPromptEmpty(screenText)
+        let userRecentlyActive = session.lastInputSource == .user && -session.lastMachineInputTime.timeIntervalSinceNow < 15
+        let userOwnsInput = promptHasUserText || userRecentlyActive
         let isAcceptEdits = Self.isAcceptEditsPrompt(screenText)
         let codexWantsApprove = response.uppercased().contains("APPROVE") || isNumericResponse
 

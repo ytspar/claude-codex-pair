@@ -1,13 +1,16 @@
 # Codex Strategy for claude-codex-pair
-Updated: 2026-04-03 18:03
+Updated: 2026-04-03 18:45
 
 ## Effectiveness
 - Total interventions: 50
-- Improved: 1 (2%)
+- Improved: 0 (0%)
 - Regressed: 0 (0%)
-- Loop detections: 33
-- Avg review duration: 3588ms
+- Loop detections: 50
+- Avg review duration: 1757ms
 
-## What Worked
-- 2
+
+## Unmatched Prompt Patterns (improve detection heuristics)
+- Expected: selection, Got response: 2{}?})
+  Screen:   - Swift build: compiles cleanly (2.43s)
+  - Swift tests: 33/33 passed, 0 failures (includes integration tests with moc
 
