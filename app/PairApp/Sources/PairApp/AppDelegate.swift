@@ -9,6 +9,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
 
+        // Disable native macOS window tabbing — we manage our own session tabs
+        NSWindow.allowsAutomaticWindowTabbing = false
+
         // Install crash handlers + logging
         PairLog.installCrashHandlers()
         PairLog.info("PairApp launching")

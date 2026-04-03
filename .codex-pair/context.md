@@ -19,3 +19,9 @@ This app’s automation logic is priority-sensitive; when Claude is at a prompt,
 
 ## 2026-04-03 17:57
 This app already has its own session tabs and prefers standard AppKit File menu conventions, so titlebar/menu work should not re-enable native tabbing or rename File menu items.
+
+## 2026-04-03 18:00
+When there are already substantial uncommitted changes, save progress with a commit before pushing further; this has been improving outcomes.
+
+## 2026-04-03 18:07
+When there are already substantial uncommitted changes, commit at a logical checkpoint before further iteration; this has been improving outcomes and helps break loop patterns.

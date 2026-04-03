@@ -867,9 +867,13 @@ class ClaudeMonitor: ObservableObject {
             let cleaned = Self.stripLearnings(response)
             if !cleaned.isEmpty { st.enqueue(cleaned, source: .codexFeedback) }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+        // After feedback, wait for the screen to actually change before reviewing again.
+        // The 1s cooldown was too aggressive — Codex would re-trigger on the same prompt.
+        // Require at least 5s AND a screen change before the next review.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
             self.transitionAndSync(st, to: .watching, reason: "post-feedback cooldown")
             st.stableCount = 0
+            st.changeCount = 0  // Force waiting for new screen changes
         }
     }
 
