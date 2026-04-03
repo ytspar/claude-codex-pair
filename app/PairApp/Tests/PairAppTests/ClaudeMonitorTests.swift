@@ -250,4 +250,97 @@ final class ClaudeMonitorTests: XCTestCase {
 
         XCTAssertTrue(triggered, "Should trigger review when changeCount (\(changeCount)) >= \(changeThreshold) and stable")
     }
+
+    // MARK: - Exponential Backoff
+
+    func testBackoffMultiplierIncreasesWithUnhelpfulReviews() {
+        let st = SessionMonitorState(sessionId: "test-backoff")
+        // Default backoff should be 1.0
+        XCTAssertEqual(st.backoffMultiplier, 1.0)
+        XCTAssertEqual(st.effectiveStableThreshold, 3) // 3 * 1.0 = 3
+
+        // After 3 unhelpful reviews (backoff threshold), multiplier should increase
+        st.consecutiveUnhelpful = 3
+        st.backoffMultiplier = 1.0 // 2^0
+        XCTAssertEqual(st.effectiveStableThreshold, 3)
+
+        // After 4 unhelpful reviews: 2^1 = 2x
+        st.backoffMultiplier = 2.0
+        XCTAssertEqual(st.effectiveStableThreshold, 6) // 3 * 2.0 = 6
+
+        // After 5 unhelpful reviews: 2^2 = 4x
+        st.backoffMultiplier = 4.0
+        XCTAssertEqual(st.effectiveStableThreshold, 12) // 3 * 4.0 = 12
+
+        // Backoff should cap at 10x
+        st.backoffMultiplier = 10.0
+        XCTAssertEqual(st.effectiveStableThreshold, 30) // 3 * 10.0 = 30
+
+        // Reset on success
+        st.consecutiveUnhelpful = 0
+        st.backoffMultiplier = 1.0
+        XCTAssertEqual(st.effectiveStableThreshold, 3)
+    }
+
+    // MARK: - Progress Signal Outcome Computation
+
+    func testOutcomeImprovedOnNewCommits() {
+        let before = CodexLedger.ProgressSignal(commitCount: 10, uncommittedFiles: 3, insertions: 50, deletions: 10)
+        let after = CodexLedger.ProgressSignal(commitCount: 11, uncommittedFiles: 2, insertions: 30, deletions: 5)
+        XCTAssertEqual(CodexLedger.computeOutcome(before: before, after: after), "improved")
+    }
+
+    func testOutcomeNeutralWhenNoChange() {
+        let before = CodexLedger.ProgressSignal(commitCount: 10, uncommittedFiles: 3, insertions: 50, deletions: 10)
+        let after = CodexLedger.ProgressSignal(commitCount: 10, uncommittedFiles: 3, insertions: 52, deletions: 12)
+        XCTAssertEqual(CodexLedger.computeOutcome(before: before, after: after), "neutral")
+    }
+
+    func testOutcomeNeutralWhenNoBefore() {
+        let after = CodexLedger.ProgressSignal(commitCount: 10, uncommittedFiles: 3, insertions: 50, deletions: 10)
+        XCTAssertEqual(CodexLedger.computeOutcome(before: nil, after: after), "neutral")
+    }
+
+    func testOutcomeImprovedOnSignificantCodeChange() {
+        let before = CodexLedger.ProgressSignal(commitCount: 10, uncommittedFiles: 3, insertions: 50, deletions: 10)
+        let after = CodexLedger.ProgressSignal(commitCount: 10, uncommittedFiles: 5, insertions: 80, deletions: 10)
+        // Net before: 40, net after: 70, diff = 30 > 5
+        XCTAssertEqual(CodexLedger.computeOutcome(before: before, after: after), "improved")
+    }
+
+    func testOutcomeImprovedWhenUncommittedDecreases() {
+        // Uncommitted files went down = Claude committed existing work
+        let before = CodexLedger.ProgressSignal(commitCount: 10, uncommittedFiles: 5, insertions: 50, deletions: 10)
+        let after = CodexLedger.ProgressSignal(commitCount: 10, uncommittedFiles: 2, insertions: 50, deletions: 10)
+        XCTAssertEqual(CodexLedger.computeOutcome(before: before, after: after), "improved")
+    }
+
+    func testOutcomeImprovedWhenNewFilesCreated() {
+        // New uncommitted files = Claude is actively writing
+        let before = CodexLedger.ProgressSignal(commitCount: 10, uncommittedFiles: 2, insertions: 30, deletions: 5)
+        let after = CodexLedger.ProgressSignal(commitCount: 10, uncommittedFiles: 4, insertions: 30, deletions: 5)
+        XCTAssertEqual(CodexLedger.computeOutcome(before: before, after: after), "improved")
+    }
+
+    // MARK: - Loop Detection
+
+    func testLoopDetectionRequiresThreeSnapshots() {
+        let st = SessionMonitorState(sessionId: "test-loop")
+        // Less than 3 snapshots should not detect loop
+        st.recordScreenSnapshot("hello world this is a test")
+        st.recordScreenSnapshot("hello world this is a test")
+        XCTAssertFalse(st.detectLoop())
+
+        // Third similar snapshot should trigger loop detection
+        st.recordScreenSnapshot("hello world this is a test")
+        XCTAssertTrue(st.detectLoop())
+    }
+
+    func testLoopDetectionDifferentContent() {
+        let st = SessionMonitorState(sessionId: "test-no-loop")
+        st.recordScreenSnapshot("completely different content here")
+        st.recordScreenSnapshot("another very unique screen output")
+        st.recordScreenSnapshot("third unique and separate screen")
+        XCTAssertFalse(st.detectLoop())
+    }
 }

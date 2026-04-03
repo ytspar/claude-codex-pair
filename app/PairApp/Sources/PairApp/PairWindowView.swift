@@ -24,6 +24,7 @@ struct PairWindowView: View {
                 }
             }
         }
+        .ignoresSafeArea()
     }
 
     var mainView: some View {
@@ -33,17 +34,23 @@ struct PairWindowView: View {
             let leftWidth = clampedX
             let rightWidth = geo.size.width - clampedX
 
-            HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                // Spacer for titlebar traffic lights (fullSizeContentView)
+                Spacer().frame(height: 28)
+
+                HStack(spacing: 0) {
                 // Left: Terminal
                 VStack(spacing: 0) {
                     // Toolbar  - visible when sessions exist or picker is open
-                    if !sessionManager.sessions.isEmpty || sessionManager.showProjectPicker {
+                    if !sessionManager.sessions.isEmpty || sessionManager.showProjectPicker || sessionManager.showLogViewer {
                         SessionToolbar(
                             sessions: sessionManager.sessions,
-                            activeId: sessionManager.showProjectPicker ? nil : sessionManager.activeSessionId,
+                            activeId: (sessionManager.showProjectPicker || sessionManager.showLogViewer) ? nil : sessionManager.activeSessionId,
                             showingBrowse: sessionManager.showProjectPicker,
+                            showingLogs: sessionManager.showLogViewer,
                             onSelect: { id in
                                 sessionManager.showProjectPicker = false
+                                sessionManager.showLogViewer = false
                                 sessionManager.activeSessionId = id
                                 ClaudeMonitor.shared.activeSessionChanged()
                                 // Focus the terminal after tab switch
@@ -56,7 +63,8 @@ struct PairWindowView: View {
                             },
                             onClose: { sessionManager.removeSession($0) },
                             onNew: { sessionManager.showProjectPicker = true },
-                            onCloseBrowse: { sessionManager.showProjectPicker = false }
+                            onCloseBrowse: { sessionManager.showProjectPicker = false },
+                            onCloseLogs: { sessionManager.showLogViewer = false }
                         )
                         Spacer().frame(height: 0)
                     }
@@ -65,12 +73,24 @@ struct PairWindowView: View {
                         // Keep ALL terminal views alive
                         ForEach(sessionManager.sessions) { session in
                             TerminalContainerView(session: session)
-                                .opacity(!sessionManager.showProjectPicker && session.id == sessionManager.activeSessionId ? 1 : 0)
-                                .allowsHitTesting(!sessionManager.showProjectPicker && session.id == sessionManager.activeSessionId)
+                                .opacity(!sessionManager.showProjectPicker && !sessionManager.showLogViewer && session.id == sessionManager.activeSessionId ? 1 : 0)
+                                .allowsHitTesting(!sessionManager.showProjectPicker && !sessionManager.showLogViewer && session.id == sessionManager.activeSessionId)
+                        }
+
+                        // Log viewer tab
+                        if sessionManager.showLogViewer {
+                            LogViewerView()
+                                .onKeyPress(.escape) {
+                                    sessionManager.showLogViewer = false
+                                    if sessionManager.sessions.isEmpty {
+                                        sessionManager.showProjectPicker = true
+                                    }
+                                    return .handled
+                                }
                         }
 
                         // Project picker as its own "tab"
-                        if sessionManager.sessions.isEmpty || sessionManager.showProjectPicker {
+                        if !sessionManager.showLogViewer && (sessionManager.sessions.isEmpty || sessionManager.showProjectPicker) {
                             ProjectPickerView { path in
                                 sessionManager.createSession(cwd: path)
                                 sessionManager.showProjectPicker = false
@@ -120,14 +140,123 @@ struct PairWindowView: View {
                         }
                 )
 
-                // Right: Codex panel
-                CodexPanelView()
-                    .frame(width: rightWidth - 12)  // subtract divider width
+                // Right: Codex panel when session active, recent projects when browsing
+                if sessionManager.showProjectPicker || sessionManager.showLogViewer || sessionManager.sessions.isEmpty {
+                    BrowseSidebarView { path in
+                        sessionManager.createSession(cwd: path)
+                        sessionManager.showProjectPicker = false
+                    }
+                    .frame(width: rightWidth - 12)
+                } else {
+                    CodexPanelView()
+                        .frame(width: rightWidth - 12)
+                }
             }
+            } // VStack with titlebar spacer
         }
         .coordinateSpace(name: "window")
         .background(themeManager.bg)
         .background(SessionShortcutButtons(sessionManager: sessionManager))
+    }
+}
+
+// MARK: - Browse sidebar (shown instead of Codex panel when no active session)
+
+struct BrowseSidebarView: View {
+    @ObservedObject private var tm = ThemeManager.shared
+    @ObservedObject private var store = RecentProjectsStore.shared
+    @ObservedObject private var sessionManager = SessionManager.shared
+    let onSelect: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack {
+                Text("RECENT PROJECTS")
+                    .font(Theme.monoTiny)
+                    .foregroundColor(tm.textMuted)
+                    .tracking(1.0)
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 14)
+            .padding(.bottom, 10)
+
+            Rectangle().fill(tm.border).frame(height: 1).padding(.horizontal, 14)
+
+            // Project list
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(store.recentProjects.prefix(20)) { project in
+                        Button(action: { onSelect(project.path) }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: project.hasGit ? "chevron.left.forwardslash.chevron.right" : "folder")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(project.hasGit ? tm.accent.opacity(0.6) : tm.textMuted)
+                                    .frame(width: 16)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(project.name)
+                                        .font(Theme.monoSmall)
+                                        .foregroundColor(tm.text)
+                                        .lineLimit(1)
+                                    Text(project.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                                        .font(Theme.monoTiny)
+                                        .foregroundColor(tm.textMuted)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                                if let date = project.lastOpened {
+                                    Text(relativeDate(date))
+                                        .font(Theme.monoTiny)
+                                        .foregroundColor(tm.textMuted.opacity(0.6))
+                                }
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { h in
+                            if h { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                        }
+                    }
+
+                    if store.recentProjects.isEmpty {
+                        Text("No recent projects")
+                            .font(Theme.monoTiny)
+                            .foregroundColor(tm.textMuted.opacity(0.5))
+                            .padding(.horizontal, 14)
+                            .padding(.top, 20)
+                    }
+                }
+                .padding(.top, 8)
+            }
+
+            Spacer()
+
+            // Footer
+            Rectangle().fill(tm.border).frame(height: 1)
+            HStack {
+                Text("Click to open")
+                    .font(Theme.monoTiny)
+                    .foregroundColor(tm.textMuted.opacity(0.5))
+                Spacer()
+                Text(AppVersion.displayString)
+                    .font(Theme.monoTiny)
+                    .foregroundColor(tm.textMuted.opacity(0.4))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 5)
+        }
+        .background(tm.bg)
+    }
+
+    private func relativeDate(_ date: Date) -> String {
+        let s = -date.timeIntervalSinceNow
+        if s < 3600 { return "\(Int(s / 60))m ago" }
+        if s < 86400 { return "\(Int(s / 3600))h ago" }
+        let days = Int(s / 86400)
+        return days == 1 ? "1d ago" : "\(days)d ago"
     }
 }
 

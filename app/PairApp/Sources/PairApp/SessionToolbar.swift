@@ -5,10 +5,12 @@ struct SessionToolbar: View {
     let sessions: [PairSession]
     let activeId: String?
     var showingBrowse: Bool = false
+    var showingLogs: Bool = false
     let onSelect: (String) -> Void
     let onClose: (String) -> Void
     let onNew: () -> Void
     var onCloseBrowse: (() -> Void)?
+    var onCloseLogs: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -34,6 +36,17 @@ struct SessionToolbar: View {
                             onClose: { onCloseBrowse?() }
                         )
                     }
+
+                    // Logs tab (when log viewer is open)
+                    if showingLogs {
+                        ToolbarTab(
+                            name: "Logs",
+                            icon: "doc.text",
+                            isActive: true,
+                            onSelect: {},
+                            onClose: { onCloseLogs?() }
+                        )
+                    }
                 }
             }
 
@@ -54,7 +67,8 @@ struct SessionToolbar: View {
             }
             .padding(.trailing, 8)
         }
-        .frame(height: 34)
+        .padding(.top, 6)
+        .frame(height: 40)
         .background(themeManager.bg)
         .overlay(
             Rectangle().fill(themeManager.border).frame(height: 1),

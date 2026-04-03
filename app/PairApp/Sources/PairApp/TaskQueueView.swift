@@ -1,65 +1,38 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
-/// Task queue UI — dispatch board style. Tight rows with status dots,
-/// inline add, drag-to-reorder, context menus. Matches the instrumentation aesthetic.
+/// Task queue UI — compact list with full-text display, inline remove,
+/// and drag-to-reorder. Header/controls live in the parent tab bar.
 struct TaskQueueView: View {
     @ObservedObject private var queue = TaskQueue.shared
     @ObservedObject private var tm = ThemeManager.shared
     @State private var newTaskText = ""
     @State private var editingId: UUID? = nil
     @State private var editText = ""
+    @State private var draggingId: UUID? = nil
+    @State private var dropTargetId: UUID? = nil
     @FocusState private var addFieldFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header
-            HStack(spacing: 6) {
-                Text("QUEUE")
+            // Paused indicator
+            if !queue.isRunning && queue.pendingCount > 0 {
+                Text("PAUSED")
                     .font(Theme.monoTiny)
-                    .foregroundColor(tm.textMuted)
-                    .tracking(1.0)
-
-                if queue.pendingCount > 0 {
-                    Text("\(queue.pendingCount)")
-                        .font(Theme.monoTiny)
-                        .foregroundColor(tm.accent)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(tm.accent.opacity(0.1))
-                }
-
-                Spacer()
-
-                if !queue.items.isEmpty {
-                    Button(action: { queue.clearAll() }) {
-                        Text("Clear")
-                            .font(Theme.monoTiny)
-                            .foregroundColor(tm.textMuted.opacity(0.6))
-                    }
-                    .buttonStyle(.plain)
-                }
+                    .foregroundColor(tm.textMuted.opacity(0.5))
+                    .tracking(0.5)
+                    .padding(.bottom, 4)
             }
-            .padding(.bottom, 4)
 
             // Task list
             if !queue.items.isEmpty {
                 taskList
             }
 
-            // Add task input — directly below header when empty
+            // Add task input
             addTaskField
                 .padding(.top, queue.items.isEmpty ? 0 : 4)
         }
-        .padding(.top, 14)
-    }
-
-    // MARK: - Empty state
-
-    private var emptyState: some View {
-        Text("Queue tasks for Claude to work through")
-            .font(Theme.monoTiny)
-            .foregroundColor(tm.textMuted.opacity(0.4))
-            .padding(.vertical, 2)
     }
 
     // MARK: - Task list
@@ -71,28 +44,37 @@ struct TaskQueueView: View {
                     editRow(item: item)
                 } else {
                     taskRow(item: item)
+                        .onDrag {
+                            draggingId = item.id
+                            return NSItemProvider(object: item.id.uuidString as NSString)
+                        }
+                        .onDrop(of: [.text], delegate: TaskDropDelegate(
+                            targetId: item.id,
+                            queue: queue,
+                            draggingId: $draggingId,
+                            dropTargetId: $dropTargetId
+                        ))
                 }
-            }
-            .onMove { source, dest in
-                queue.moveTask(from: source, to: dest)
             }
         }
     }
 
     private func taskRow(item: TaskQueue.TaskItem) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            // Status dot — vertically centered with first line of text
+        let isDropTarget = dropTargetId == item.id && draggingId != item.id
+
+        return HStack(alignment: .top, spacing: 8) {
+            // Status dot
             statusDot(item.status)
                 .padding(.top, 4)
 
-            // Title — wrap to two lines
-            Text(item.title)
+            // Full prompt text — no truncation
+            Text(item.prompt)
                 .font(Theme.monoTiny)
                 .foregroundColor(textColor(item.status))
-                .lineLimit(2)
                 .strikethrough(item.status == .completed, color: tm.textMuted.opacity(0.4))
-
-            Spacer()
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
 
             // Active indicator
             if item.status == .active {
@@ -101,25 +83,37 @@ struct TaskQueueView: View {
                     .foregroundColor(tm.warning)
                     .tracking(0.5)
             }
+
+            // Remove button
+            Button(action: { queue.removeTask(id: item.id) }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8))
+                    .foregroundColor(tm.textMuted.opacity(0.5))
+                    .frame(width: 16, height: 16)
+            }
+            .buttonStyle(.plain)
         }
         .padding(.vertical, 5)
         .padding(.horizontal, 2)
+        .overlay(
+            isDropTarget
+                ? Rectangle().fill(tm.accent).frame(height: 1).offset(y: -3)
+                : nil,
+            alignment: .top
+        )
         .contentShape(Rectangle())
         .contextMenu { contextMenu(item: item) }
-        .onTapGesture(count: 2) {
-            editingId = item.id
-            editText = item.prompt
-        }
     }
 
     private func editRow(item: TaskQueue.TaskItem) -> some View {
         HStack(spacing: 8) {
             statusDot(item.status)
 
-            TextField("Task prompt", text: $editText)
+            TextField("Task prompt", text: $editText, axis: .vertical)
                 .font(Theme.monoTiny)
                 .textFieldStyle(.plain)
                 .foregroundColor(tm.text)
+                .lineLimit(6)
                 .onSubmit {
                     queue.updateTask(id: item.id, title: String(editText.prefix(60)), prompt: editText)
                     editingId = nil
@@ -140,16 +134,18 @@ struct TaskQueueView: View {
     // MARK: - Add task
 
     private var addTaskField: some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             Image(systemName: "plus")
-                .font(.system(size: 9))
+                .font(.system(size: 8, weight: .medium))
                 .foregroundColor(tm.textMuted.opacity(0.5))
-                .frame(width: 5, alignment: .center)
+                .frame(width: 5, height: 5, alignment: .center)
+                .padding(.top, 4)
 
-            TextField("Add task\u{2026}", text: $newTaskText)
+            TextField("Add task\u{2026}", text: $newTaskText, axis: .vertical)
                 .font(Theme.monoTiny)
                 .textFieldStyle(.plain)
                 .foregroundColor(tm.text)
+                .lineLimit(4)
                 .focused($addFieldFocused)
                 .onSubmit { addTask() }
 
@@ -219,5 +215,51 @@ struct TaskQueueView: View {
         case .completed: return tm.textMuted
         case .failed: return tm.error.opacity(0.8)
         }
+    }
+}
+
+// MARK: - Drag-to-reorder
+
+struct TaskDropDelegate: DropDelegate {
+    let targetId: UUID
+    let queue: TaskQueue
+    @Binding var draggingId: UUID?
+    @Binding var dropTargetId: UUID?
+
+    func dropEntered(info: DropInfo) {
+        dropTargetId = targetId
+    }
+
+    func dropExited(info: DropInfo) {
+        if dropTargetId == targetId { dropTargetId = nil }
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard let sourceId = draggingId else { return false }
+        guard sourceId != targetId else { draggingId = nil; dropTargetId = nil; return false }
+
+        let items = queue.items
+        guard let fromIndex = items.firstIndex(where: { $0.id == sourceId }),
+              let toIndex = items.firstIndex(where: { $0.id == targetId }) else {
+            draggingId = nil
+            dropTargetId = nil
+            return false
+        }
+
+        withAnimation(.easeOut(duration: 0.15)) {
+            queue.moveTask(from: IndexSet(integer: fromIndex), to: toIndex > fromIndex ? toIndex + 1 : toIndex)
+        }
+
+        draggingId = nil
+        dropTargetId = nil
+        return true
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func validateDrop(info: DropInfo) -> Bool {
+        draggingId != nil
     }
 }

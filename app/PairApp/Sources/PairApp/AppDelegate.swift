@@ -41,7 +41,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.backgroundColor = NSColor(ThemeManager.shared.bg)
         window.appearance = NSAppearance(named: .darkAqua)
         window.titlebarAppearsTransparent = true
-        window.titleVisibility = .visible
+        window.titleVisibility = .hidden
         window.styleMask.insert(.fullSizeContentView)
 
         let contentView = PairWindowView()
@@ -127,8 +127,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         fileMenu.autoenablesItems = false
         fileMenu.addItem(withTitle: "New Session", action: #selector(newSession), keyEquivalent: "n")
         fileMenu.addItem(withTitle: "New Tab", action: #selector(newSession), keyEquivalent: "t")
-        fileMenu.addItem(withTitle: "Close Session", action: #selector(closeSession), keyEquivalent: "")
         fileMenu.addItem(NSMenuItem.separator())
+        fileMenu.addItem(withTitle: "Browse\u{2026}", action: #selector(browseForProject), keyEquivalent: "o")
+
+        // Open Recent submenu
+        let recentItem = NSMenuItem(title: "Open Recent", action: nil, keyEquivalent: "")
+        let recentMenu = NSMenu(title: "Open Recent")
+        recentMenu.delegate = self
+        recentItem.submenu = recentMenu
+        fileMenu.addItem(recentItem)
+        fileMenu.addItem(NSMenuItem.separator())
+        fileMenu.addItem(withTitle: "Close Session", action: #selector(closeSession), keyEquivalent: "")
         fileMenu.addItem(withTitle: "Close Window", action: #selector(closeWindow), keyEquivalent: "W")
 
         let fileMenuItem = NSMenuItem()
@@ -155,6 +164,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let devMenuItem = NSMenuItem()
         devMenuItem.submenu = devMenu
         mainMenu.addItem(devMenuItem)
+
+        // Log menu
+        let logMenu = NSMenu(title: "Log")
+        logMenu.autoenablesItems = false
+        let showLogsItem = NSMenuItem(title: "Show Logs", action: #selector(showLogs), keyEquivalent: "l")
+        showLogsItem.keyEquivalentModifierMask = [.command, .shift]
+        logMenu.addItem(showLogsItem)
+        logMenu.addItem(withTitle: "Open Log in Finder", action: #selector(openLogInFinder), keyEquivalent: "")
+        logMenu.addItem(withTitle: "Clear Debug Log", action: #selector(clearDebugLog), keyEquivalent: "")
+
+        let logMenuItem = NSMenuItem()
+        logMenuItem.submenu = logMenu
+        mainMenu.addItem(logMenuItem)
 
         // View menu
         let viewMenu = NSMenu(title: "View")
@@ -204,6 +226,43 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         SessionManager.shared.showProjectPicker = true
     }
 
+    @objc func showLogs() {
+        SessionManager.shared.showProjectPicker = false
+        SessionManager.shared.showLogViewer = true
+    }
+
+    @objc func openLogInFinder() {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let logDir = "\(home)/.claude-codex-pair"
+        NSWorkspace.shared.selectFile("\(logDir)/pairapp-debug.log", inFileViewerRootedAtPath: logDir)
+    }
+
+    @objc func clearDebugLog() {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        try? "".write(toFile: "\(home)/.claude-codex-pair/pairapp-debug.log", atomically: true, encoding: .utf8)
+    }
+
+    @objc func browseForProject() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Select"
+        panel.directoryURL = URL(fileURLWithPath: NSHomeDirectory() + "/git")
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                RecentProjectsStore.shared.recordOpen(url.path)
+                SessionManager.shared.createSession(cwd: url.path)
+            }
+        }
+    }
+
+    @objc func openRecentProject(_ sender: NSMenuItem) {
+        guard let path = sender.representedObject as? String else { return }
+        RecentProjectsStore.shared.recordOpen(path)
+        SessionManager.shared.createSession(cwd: path)
+    }
+
     @objc func rebuildAndRelaunch() {
         // Persist sessions, then spawn the rebuild script and quit
         SessionManager.shared.persistSessionDirs()
@@ -246,5 +305,52 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             "\(home)/git/ytspar/claude-codex-pair/scripts/rebuild.sh",
         ]
         return paths.first(where: { FileManager.default.fileExists(atPath: $0) })
+    }
+}
+
+// MARK: - Recent Projects menu
+
+extension AppDelegate: NSMenuDelegate {
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu.title == "Open Recent" else { return }
+        menu.removeAllItems()
+
+        let projects = RecentProjectsStore.shared.recentProjects.prefix(10)
+        if projects.isEmpty {
+            let emptyItem = NSMenuItem(title: "No Recent Projects", action: nil, keyEquivalent: "")
+            emptyItem.isEnabled = false
+            menu.addItem(emptyItem)
+            return
+        }
+
+        for project in projects {
+            let item = NSMenuItem(title: "", action: #selector(openRecentProject(_:)), keyEquivalent: "")
+            item.representedObject = project.path
+
+            // Attributed title: name on top, short path below in gray
+            let title = NSMutableAttributedString()
+            title.append(NSAttributedString(
+                string: project.name + "\n",
+                attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)]
+            ))
+            title.append(NSAttributedString(
+                string: project.shortPath,
+                attributes: [
+                    .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular),
+                    .foregroundColor: NSColor.secondaryLabelColor,
+                ]
+            ))
+            item.attributedTitle = title
+            menu.addItem(item)
+        }
+
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(withTitle: "Clear Menu", action: #selector(clearRecentProjects), keyEquivalent: "")
+    }
+}
+
+extension AppDelegate {
+    @objc func clearRecentProjects() {
+        RecentProjectsStore.shared.clearAll()
     }
 }

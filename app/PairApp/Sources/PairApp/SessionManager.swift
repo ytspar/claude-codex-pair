@@ -6,8 +6,14 @@ class SessionManager: ObservableObject {
 
     @Published var sessions: [PairSession] = []
     @Published var showProjectPicker = false
+    @Published var showLogViewer = false
     @Published var activeSessionId: String? {
-        didSet { PairLog.info("Active session: \(oldValue ?? "nil") → \(activeSessionId ?? "nil")") }
+        didSet {
+            PairLog.info("Active session: \(oldValue ?? "nil") → \(activeSessionId ?? "nil")")
+            // Switch task queue to the active session's project
+            let cwd = activeSession?.cwd
+            TaskQueue.shared.setProject(cwd)
+        }
     }
 
     private static let sessionFile: String = {
@@ -95,7 +101,7 @@ class SessionManager: ObservableObject {
 class PairSession: Identifiable, ObservableObject {
     let id: String
     let cwd: String
-    weak var terminalView: LocalProcessTerminalView?
+    weak var terminalView: PairTerminalView?
     var currentDirectory: String
 
     /// Tracks whether the last input was from the user (keyboard) or machine (Codex/IPC).
@@ -111,7 +117,7 @@ class PairSession: Identifiable, ObservableObject {
         self.currentDirectory = cwd
     }
 
-    func start(in view: LocalProcessTerminalView) {
+    func start(in view: PairTerminalView) {
         self.terminalView = view
         let env = ShellIntegration.shared.environment(sessionId: id, cwd: cwd)
         let envArray = env.map { "\($0.key)=\($0.value)" }
@@ -129,7 +135,7 @@ class PairSession: Identifiable, ObservableObject {
         sanitized = sanitized.unicodeScalars.filter { $0 == "\n" || $0 == "\r" || ($0.value >= 0x20 && $0.value < 0x7F) || $0.value > 0x7F }.map(String.init).joined()
         // Replace \n with \r for terminal submission (Enter = carriage return)
         let termText = sanitized.replacingOccurrences(of: "\n", with: "\r")
-        terminalView?.send(txt: termText)
+        terminalView?.sendPreservingScroll(txt: termText)
     }
 
     /// Paste text into the terminal without submitting (no trailing Enter).
@@ -139,29 +145,29 @@ class PairSession: Identifiable, ObservableObject {
         // Bracketed paste: terminal treats content as pasted text, not typed keystrokes.
         // This prevents newlines from being interpreted as Enter presses.
         let escaped = "\u{1B}[200~\(text)\u{1B}[201~"
-        terminalView?.send(txt: escaped)
+        terminalView?.sendPreservingScroll(txt: escaped)
     }
 
     /// Send arrow key escape sequences for interactive selection prompts.
     /// Claude Code uses TUI widgets where you arrow down to select, then Enter.
     func sendArrowDown(_ count: Int = 1) {
         for _ in 0..<count {
-            terminalView?.send(txt: "\u{1b}[B")  // ESC [ B = arrow down
+            terminalView?.sendPreservingScroll(txt: "\u{1b}[B")  // ESC [ B = arrow down
         }
     }
 
     func sendArrowUp(_ count: Int = 1) {
         for _ in 0..<count {
-            terminalView?.send(txt: "\u{1b}[A")  // ESC [ A = arrow up
+            terminalView?.sendPreservingScroll(txt: "\u{1b}[A")  // ESC [ A = arrow up
         }
     }
 
     func sendEnter() {
-        terminalView?.send(txt: "\r")
+        terminalView?.sendPreservingScroll(txt: "\r")
     }
 
     func sendEscape() {
-        terminalView?.send(txt: "\u{1b}")
+        terminalView?.sendPreservingScroll(txt: "\u{1b}")
     }
 
     /// Select a numbered option in Claude's interactive prompts.

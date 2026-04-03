@@ -9,9 +9,13 @@ struct CodexPanelView: View {
     @ObservedObject private var tm = ThemeManager.shared
     @ObservedObject private var sessionManager = SessionManager.shared
     @ObservedObject private var monitor = ClaudeMonitor.shared
+    @ObservedObject private var taskQueue = TaskQueue.shared
     @State private var refreshTick = 0
     @State private var focusedIndex: Int? = nil
     @State private var expandedIds: Set<UUID> = []
+    @State private var activeContentTab: ContentTab = .queue
+
+    enum ContentTab { case queue, timeline }
 
     /// All focusable items: timeline entries (could add task/feedback later).
     private var focusableItems: [ClaudeMonitor.TimelineEntry] {
@@ -55,19 +59,31 @@ struct CodexPanelView: View {
                             }
                         }
 
-                        // Task queue
-                        TaskQueueView()
-
-                        // Timeline
-                        if !monitor.timeline.isEmpty {
-                            TimelineSectionView(
-                                entries: monitor.timeline,
-                                tm: tm,
-                                colorForEvent: timelineColor,
-                                focusedIndex: focusedIndex,
-                                expandedIds: $expandedIds
-                            )
+                        // ── Queue / Timeline tab bar ──
+                        contentTabBar
                             .padding(.top, 14)
+
+                        // ── Tab content ──
+                        switch activeContentTab {
+                        case .queue:
+                            TaskQueueView()
+                                .padding(.top, 4)
+                        case .timeline:
+                            if !monitor.timeline.isEmpty {
+                                TimelineSectionView(
+                                    entries: monitor.timeline,
+                                    tm: tm,
+                                    colorForEvent: timelineColor,
+                                    focusedIndex: focusedIndex,
+                                    expandedIds: $expandedIds
+                                )
+                                .padding(.top, 4)
+                            } else {
+                                Text("No activity yet")
+                                    .font(Theme.monoTiny)
+                                    .foregroundColor(tm.textMuted.opacity(0.5))
+                                    .padding(.top, 8)
+                            }
                         }
                     }
                     .padding(.horizontal, 14)
@@ -75,6 +91,7 @@ struct CodexPanelView: View {
                 }
                 .onChange(of: focusedIndex) { idx in
                     if let idx = idx, idx < focusableItems.count {
+                        activeContentTab = .timeline
                         withAnimation(.easeOut(duration: 0.1)) {
                             proxy.scrollTo(focusableItems[idx].id, anchor: .center)
                         }
@@ -84,8 +101,6 @@ struct CodexPanelView: View {
 
             // ── Scratchpad ──
             ScratchpadView()
-
-            Rectangle().fill(tm.border).frame(height: 1)
 
             // ── Footer ──
             footer
@@ -136,6 +151,17 @@ struct CodexPanelView: View {
 
                 Spacer()
 
+                if monitor.backoffMultiplier > 1.0 {
+                    Text("\(String(format: "%.0f", monitor.backoffMultiplier))x")
+                        .font(Theme.monoTiny)
+                        .foregroundColor(tm.warning)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(tm.warning.opacity(0.1))
+                        .cornerRadius(2)
+                        .help("Backing off: \(monitor.consecutiveUnhelpful) reviews without improvement")
+                }
+
                 if monitor.cycleCount > 0 {
                     Text("\(monitor.cycleCount)")
                         .font(Theme.monoTiny)
@@ -170,9 +196,84 @@ struct CodexPanelView: View {
         .padding(.top, 14)
     }
 
-    // MARK: - Footer
+    // MARK: - Content tab bar
 
-    @ObservedObject private var taskQueue = TaskQueue.shared
+    private var contentTabBar: some View {
+        HStack(spacing: 0) {
+            contentTabButton("QUEUE", count: taskQueue.pendingCount, tab: .queue)
+            contentTabButton("TIMELINE", count: monitor.timeline.count, tab: .timeline)
+            Spacer()
+
+            // Queue controls inline
+            if activeContentTab == .queue {
+                if !taskQueue.isRunning && taskQueue.pendingCount > 0 {
+                    Button(action: { taskQueue.start() }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 7))
+                            Text("Start")
+                                .font(Theme.monoTiny)
+                        }
+                        .foregroundColor(tm.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 6)
+                }
+                if taskQueue.isRunning {
+                    Button(action: { taskQueue.stop() }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "pause.fill")
+                                .font(.system(size: 7))
+                            Text("Pause")
+                                .font(Theme.monoTiny)
+                        }
+                        .foregroundColor(tm.warning)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 6)
+                }
+                if !taskQueue.items.isEmpty {
+                    Button(action: { taskQueue.clearAll() }) {
+                        Text("Clear")
+                            .font(Theme.monoTiny)
+                            .foregroundColor(tm.textMuted.opacity(0.6))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func contentTabButton(_ label: String, count: Int, tab: ContentTab) -> some View {
+        let isActive = activeContentTab == tab
+        return HStack(spacing: 4) {
+            Text(label)
+                .font(Theme.monoTiny)
+                .foregroundColor(isActive ? tm.accent : tm.textMuted)
+                .tracking(1.0)
+            if count > 0 {
+                Text("\(count)")
+                    .font(.custom(Theme.fontName, size: 8))
+                    .foregroundColor(isActive ? tm.accent : tm.textMuted)
+                    .padding(.horizontal, 3)
+                    .padding(.vertical, 1)
+                    .background((isActive ? tm.accent : tm.textMuted).opacity(0.1))
+                    .cornerRadius(2)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .overlay(
+            Rectangle()
+                .fill(isActive ? tm.accent : Color.clear)
+                .frame(height: 1),
+            alignment: .bottom
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { activeContentTab = tab }
+    }
+
+    // MARK: - Footer
 
     private var footer: some View {
         HStack(spacing: 6) {
@@ -181,21 +282,27 @@ struct CodexPanelView: View {
                 .frame(width: 4, height: 4)
             Text("\(sessionManager.sessions.count) session\(sessionManager.sessions.count == 1 ? "" : "s")")
                 .font(Theme.monoTiny)
-                .foregroundColor(tm.textMuted.opacity(0.6))
+                .foregroundColor(tm.textSecondary)
             if monitor.cycleCount > 0 {
                 Text("\u{00B7} \(monitor.cycleCount) review\(monitor.cycleCount == 1 ? "" : "s")")
                     .font(Theme.monoTiny)
-                    .foregroundColor(tm.textMuted.opacity(0.6))
+                    .foregroundColor(tm.textSecondary)
             }
             if taskQueue.pendingCount > 0 {
                 Text("\u{00B7} \(taskQueue.pendingCount) queued")
                     .font(Theme.monoTiny)
-                    .foregroundColor(tm.textMuted.opacity(0.6))
+                    .foregroundColor(tm.textSecondary)
+            }
+            let totalOutcomes = monitor.sessionImproved + monitor.sessionNeutral + monitor.sessionRegressed
+            if totalOutcomes > 0 {
+                Text("\u{00B7} \(monitor.sessionImproved)/\(totalOutcomes) helped")
+                    .font(Theme.monoTiny)
+                    .foregroundColor(monitor.sessionImproved > monitor.sessionRegressed ? tm.accent : tm.warning)
             }
             Spacer()
             Text(AppVersion.displayString)
                 .font(Theme.monoTiny)
-                .foregroundColor(tm.textMuted.opacity(0.4))
+                .foregroundColor(tm.textMuted)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 5)
@@ -226,14 +333,14 @@ struct CodexPanelView: View {
     }
 
     func timelineColor(_ event: String) -> Color {
-        // Subtle monochrome — emerald tints only, errors break the hue.
+        // Muted monochrome — mostly grey, accent only for resolutions, errors subdued.
         switch event {
-        case "APPROVED":                          return tm.accent.opacity(0.8)
-        case "FEEDBACK", "CODEX_RESPONSE":        return tm.accent.opacity(0.5)
-        case "REVIEWING", "STUCK":                return tm.textMuted
-        case "SELECT":                            return tm.textMuted.opacity(0.6)
-        case "CODEX_EMPTY", "ERROR", "LOOP_DETECTED": return tm.error.opacity(0.7)
-        default:                                  return tm.textMuted.opacity(0.6)
+        case "APPROVED":                          return tm.accent.opacity(0.5)
+        case "FEEDBACK", "CODEX_RESPONSE":        return tm.textMuted.opacity(0.7)
+        case "REVIEWING", "STUCK":                return tm.textMuted.opacity(0.5)
+        case "SELECT":                            return tm.textMuted.opacity(0.4)
+        case "CODEX_EMPTY", "ERROR", "LOOP_DETECTED": return tm.error.opacity(0.4)
+        default:                                  return tm.textMuted.opacity(0.4)
         }
     }
 
@@ -285,12 +392,6 @@ struct TimelineSectionView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("TIMELINE")
-                .font(Theme.monoTiny)
-                .foregroundColor(tm.textMuted)
-                .tracking(1.0)
-                .padding(.bottom, 8)
-
             ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                 let isFirst = index == 0
                 let isResolution = entry.event == "APPROVED" || entry.event == "FEEDBACK"
@@ -313,6 +414,9 @@ struct TimelineSectionView: View {
                             if expandedIds.contains(entry.id) { expandedIds.remove(entry.id) }
                             else { expandedIds.insert(entry.id) }
                         }
+                    },
+                    onRate: { rating in
+                        ClaudeMonitor.shared.rateIntervention(entryId: entry.id, rating: rating)
                     }
                 )
                 .id(entry.id)
@@ -348,6 +452,8 @@ struct TimelineEntryView: View {
     var isFocused: Bool = false
     var isExpanded: Bool = false
     var onToggle: (() -> Void)? = nil
+    var onRate: ((String) -> Void)? = nil
+    @State private var userRating: String? = nil
 
     private var dotSize: CGFloat { isResolution ? 8 : 5 }
 
@@ -384,18 +490,27 @@ struct TimelineEntryView: View {
                     HStack(spacing: 6) {
                         Text(entry.event)
                             .font(Theme.monoTiny)
-                            .fontWeight(.bold)
-                            .foregroundColor(color)
+                            .fontWeight(.medium)
+                            .foregroundColor(isLatest ? color : tm.textMuted)
+                        // Source badge — distinguish user, codex, and monitor actions
+                        Text(sourceLabel(entry.source))
+                            .font(.custom(Theme.fontName, size: 8))
+                            .foregroundColor(sourceColor(entry.source))
+                            .padding(.horizontal, 3)
+                            .padding(.vertical, 1)
+                            .background(sourceColor(entry.source).opacity(0.08))
+                            .cornerRadius(2)
                         if let ms = entry.durationMs {
                             Text(formatDuration(ms))
                                 .font(Theme.monoTiny)
                                 .foregroundColor(tm.textMuted)
                         }
-                        Spacer()
+                        Spacer(minLength: 4)
                         if showTimestamp {
                             Text(timeAgo(entry.time))
                                 .font(Theme.monoTiny)
                                 .foregroundColor(tm.textMuted.opacity(0.7))
+                                .layoutPriority(-1)
                         }
                         Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                             .font(.system(size: 7))
@@ -409,6 +524,7 @@ struct TimelineEntryView: View {
                         .font(Theme.monoTiny)
                         .foregroundColor(isLatest || isFocused ? tm.textSecondary : tm.textMuted)
                         .lineLimit(isExpanded ? nil : (isLatest ? 2 : 1))
+                        .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
 
                     // Expanded: show full context
@@ -417,6 +533,7 @@ struct TimelineEntryView: View {
                     }
                 }
                 .padding(.bottom, isResolution ? 10 : 6)
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
         // Focus highlight
@@ -453,8 +570,15 @@ struct TimelineEntryView: View {
                 expandedSection(label: "SCREEN", text: snippet, copyable: false)
             }
 
-            // Copy all button
+            // Rating + copy buttons
             HStack(spacing: 10) {
+                // Thumbs up/down — user feedback on whether this intervention helped
+                if entry.source == .codex {
+                    ratingButton(icon: "hand.thumbsup", rating: "improved",
+                                 isActive: userRating == "improved", activeColor: tm.accent)
+                    ratingButton(icon: "hand.thumbsdown", rating: "regressed",
+                                 isActive: userRating == "regressed", activeColor: tm.error)
+                }
                 copyButton(label: "Copy response", text: entry.codexResponse)
                 copyButton(label: "Copy all", text: allCopyText)
                 Spacer()
@@ -478,9 +602,11 @@ struct TimelineEntryView: View {
             Text(text)
                 .font(Theme.monoTiny)
                 .foregroundColor(tm.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
                 .lineLimit(label == "PROMPT" ? 6 : nil)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(8)
         .background(tm.bgElevated.opacity(0.3))
     }
@@ -499,10 +625,24 @@ struct TimelineEntryView: View {
                         .font(Theme.monoTiny)
                 }
             }
-            .foregroundColor(tm.accent.opacity(0.7))
+            .foregroundColor(tm.textMuted.opacity(0.6))
         }
         .buttonStyle(.plain)
         .opacity(text?.isEmpty == false ? 1 : 0.3)
+    }
+
+    private func ratingButton(icon: String, rating: String, isActive: Bool, activeColor: Color) -> some View {
+        Button(action: {
+            withAnimation(.easeOut(duration: 0.15)) {
+                userRating = isActive ? nil : rating
+            }
+            onRate?(isActive ? "neutral" : rating)
+        }) {
+            Image(systemName: isActive ? "\(icon).fill" : icon)
+                .font(.system(size: 10))
+                .foregroundColor(isActive ? activeColor : tm.textMuted.opacity(0.5))
+        }
+        .buttonStyle(.plain)
     }
 
     private var allCopyText: String? {
@@ -528,6 +668,22 @@ struct TimelineEntryView: View {
     private func formatDuration(_ ms: Int) -> String {
         if ms < 1000 { return "\(ms)ms" }
         return String(format: "%.1fs", Double(ms) / 1000.0)
+    }
+
+    private func sourceLabel(_ source: ClaudeMonitor.TimelineSource) -> String {
+        switch source {
+        case .user: return "USER"
+        case .codex: return "CODEX"
+        case .monitor: return "AUTO"
+        }
+    }
+
+    private func sourceColor(_ source: ClaudeMonitor.TimelineSource) -> Color {
+        switch source {
+        case .user: return tm.cyan
+        case .codex: return tm.accent
+        case .monitor: return tm.textMuted
+        }
     }
 }
 

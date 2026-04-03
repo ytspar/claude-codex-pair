@@ -177,7 +177,10 @@ program
 				const appStat = fs.statSync(appBundleBinary);
 				if (buildStat.mtimeMs > appStat.mtimeMs) {
 					fs.copyFileSync(binary, appBundleBinary);
-					try { execFileSync("codesign", ["--force", "--deep", "--sign", "-", "/Applications/Pair.app"]); } catch { /* */ }
+					try {
+							execFileSync("xattr", ["-cr", "/Applications/Pair.app"]);
+							execFileSync("codesign", ["--force", "--deep", "--sign", "-", "/Applications/Pair.app"]);
+						} catch { /* */ }
 					console.log(dim("Updated /Applications/Pair.app"));
 				}
 			}
@@ -383,6 +386,15 @@ program
 			console.error(red("Screenshot failed"));
 			process.exit(1);
 		}
+	});
+
+// ── pair watch ─────────────────────────────────────────────────────────
+program
+	.command("watch")
+	.description("Auto-rebuild daemon: watches Swift sources, builds, tests, hot-restarts PairApp")
+	.action(async () => {
+		const { startWatchDaemon } = await import("./watch/rebuild-daemon.js");
+		await startWatchDaemon();
 	});
 
 // ── pair config ─────────────────────────────────────────────────────────

@@ -92,6 +92,9 @@ xattr -cr "$RELEASE_DIR/Pair.app"
 if [ -n "$APPLE_IDENTITY" ]; then
     echo "  Using Developer ID: $APPLE_IDENTITY"
 
+    # Strip extended attributes (resource forks) that break codesign
+    xattr -cr "$RELEASE_DIR/Pair.app"
+
     # Hardened runtime required for notarization
     codesign --force --deep --options runtime \
         --sign "$APPLE_IDENTITY" \
@@ -117,6 +120,7 @@ if [ -n "$APPLE_IDENTITY" ]; then
 else
     echo "  Ad-hoc signing (no APPLE_IDENTITY set)"
     echo "  For full signing: export APPLE_IDENTITY='Developer ID Application: ...'"
+    xattr -cr "$RELEASE_DIR/Pair.app"
     codesign --force --deep --sign - "$RELEASE_DIR/Pair.app"
     codesign --verify --deep --strict "$RELEASE_DIR/Pair.app"
 fi

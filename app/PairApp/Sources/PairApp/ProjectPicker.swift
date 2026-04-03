@@ -3,7 +3,7 @@ import SwiftUI
 /// Built-in project picker with recent projects list and directory browser.
 struct ProjectPickerView: View {
     @ObservedObject private var themeManager = ThemeManager.shared
-    @StateObject private var store = RecentProjectsStore()
+    @ObservedObject private var store = RecentProjectsStore.shared
     @State private var searchText = ""
     @State private var browsePath: String = NSHomeDirectory() + "/git"
     let onSelect: (String) -> Void
@@ -197,6 +197,8 @@ struct RecentProject: Identifiable, Codable {
 }
 
 class RecentProjectsStore: ObservableObject {
+    static let shared = RecentProjectsStore()
+
     @Published var recentProjects: [RecentProject] = []
 
     private let storePath: String
@@ -226,6 +228,11 @@ class RecentProjectsStore: ObservableObject {
             let hasGit = FileManager.default.fileExists(atPath: "\(path)/.git")
             recentProjects.insert(RecentProject(name: name, path: path, hasGit: hasGit, lastOpened: Date()), at: 0)
         }
+        save()
+    }
+
+    func clearAll() {
+        recentProjects.removeAll()
         save()
     }
 
