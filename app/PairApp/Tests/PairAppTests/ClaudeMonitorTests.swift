@@ -343,4 +343,245 @@ final class ClaudeMonitorTests: XCTestCase {
         st.recordScreenSnapshot("third unique and separate screen")
         XCTAssertFalse(st.detectLoop())
     }
+
+    // MARK: - isAcceptEditsPrompt
+
+    func testDetectsAcceptEditsOnPrompt() {
+        let screen = """
+        app/PairApp/Sources/PairApp/Version.swift
+        Accept edits on this file?
+        Shift+Tab to cycle through options
+        """
+        XCTAssertTrue(ClaudeMonitor.isAcceptEditsPrompt(screen))
+    }
+
+    func testDetectsShiftTabToCyclePrompt() {
+        let screen = """
+        main.swift
+        shift-tab to cycle through options
+        """
+        XCTAssertTrue(ClaudeMonitor.isAcceptEditsPrompt(screen))
+    }
+
+    func testDetectsDoYouWantToMakeThisEdit() {
+        let screen = """
+        Do you want to make this edit to main.swift?
+        ❯ Yes
+          No
+        """
+        XCTAssertTrue(ClaudeMonitor.isAcceptEditsPrompt(screen))
+    }
+
+    func testNormalOutputNotAcceptEdits() {
+        let screen = """
+        Claude Code v2.1.85
+        Created hello.swift
+        ❯
+        """
+        XCTAssertFalse(ClaudeMonitor.isAcceptEditsPrompt(screen))
+    }
+
+    // MARK: - isInteractivePrompt (comprehensive)
+
+    func testDetectsYesNoParenthesized() {
+        let screen = """
+        Do you want to continue? (y/n)
+        """
+        XCTAssertTrue(ClaudeMonitor.isInteractivePrompt(screen))
+    }
+
+    func testDetectsBracketedYesNo() {
+        let screen = """
+        Overwrite file? [yes/no]
+        """
+        XCTAssertTrue(ClaudeMonitor.isInteractivePrompt(screen))
+    }
+
+    func testDetectsAreYouSure() {
+        let screen = """
+        This will delete 3 files.
+        Are you sure?
+        """
+        XCTAssertTrue(ClaudeMonitor.isInteractivePrompt(screen))
+    }
+
+    func testDetectsProceedQuestion() {
+        let screen = """
+        Changes detected in 5 files.
+        Proceed?
+        """
+        XCTAssertTrue(ClaudeMonitor.isInteractivePrompt(screen))
+    }
+
+    func testDetectsContinueQuestion() {
+        let screen = """
+        Rate limit reached.
+        Continue?
+        """
+        XCTAssertTrue(ClaudeMonitor.isInteractivePrompt(screen))
+    }
+
+    func testDetectsPressEnter() {
+        let screen = """
+        Installation complete.
+        Press Enter to continue
+        """
+        XCTAssertTrue(ClaudeMonitor.isInteractivePrompt(screen))
+    }
+
+    func testDetectsPressAnyKey() {
+        let screen = """
+        Setup finished.
+        Press any key to exit
+        """
+        XCTAssertTrue(ClaudeMonitor.isInteractivePrompt(screen))
+    }
+
+    func testDetectsEscToCancel() {
+        let screen = """
+        Claude wants to run: rm -rf /tmp/test
+        Esc to cancel
+        """
+        XCTAssertTrue(ClaudeMonitor.isInteractivePrompt(screen))
+    }
+
+    func testDoesNotTriggerOnEscToClose() {
+        // "esc to close" is a viewer/pager, not an interactive prompt
+        let screen = """
+        File contents displayed
+        Esc to close
+        """
+        XCTAssertFalse(ClaudeMonitor.isInteractivePrompt(screen))
+    }
+
+    func testDetectsMcpTrustPrompt() {
+        let screen = """
+        MCP server "fetch" wants to access the network.
+        Allow this MCP server?
+        ❯ Allow once
+          Allow always
+          Deny
+        """
+        XCTAssertTrue(ClaudeMonitor.isInteractivePrompt(screen))
+    }
+
+    func testDetectsTrustThis() {
+        let screen = """
+        trust this MCP server to run tools?
+        """
+        XCTAssertTrue(ClaudeMonitor.isInteractivePrompt(screen))
+    }
+
+    func testDetectsDoYouWantTo() {
+        let screen = """
+        Do you want to allow Claude to write files?
+        """
+        XCTAssertTrue(ClaudeMonitor.isInteractivePrompt(screen))
+    }
+
+    func testDetectsWouldYouLike() {
+        let screen = """
+        Would you like to install the missing dependency?
+        """
+        XCTAssertTrue(ClaudeMonitor.isInteractivePrompt(screen))
+    }
+
+    func testDetectsRunCommand() {
+        let screen = """
+        Claude wants to run command: npm install
+        Allow once?
+        """
+        XCTAssertTrue(ClaudeMonitor.isInteractivePrompt(screen))
+    }
+
+    func testDetectsClaudeAskingQuestion() {
+        let screen = """
+        I found 3 files that match.
+        Which one would you like me to examine?
+        ❯
+        """
+        XCTAssertTrue(ClaudeMonitor.isInteractivePrompt(screen))
+    }
+
+    func testClaudeAskingQuestionWithCostLine() {
+        let screen = """
+        Claude Code cost: $0.15
+        I can refactor this two ways.
+        Should I use approach A or B?
+        ❯
+        """
+        XCTAssertTrue(ClaudeMonitor.isInteractivePrompt(screen))
+    }
+
+    func testNormalOutputNotInteractive() {
+        let screen = """
+        Claude Code v2.1.85
+        Working on your task...
+        Created file: hello.swift
+        ❯
+        """
+        XCTAssertFalse(ClaudeMonitor.isInteractivePrompt(screen))
+    }
+
+    func testNormalCodeOutputNotInteractive() {
+        // Code output that happens to contain "?" in strings shouldn't trigger
+        let screen = """
+        Read src/main.ts
+        let query = "what is this?"
+        let url = "https://example.com?q=1"
+        ❯
+        """
+        XCTAssertFalse(ClaudeMonitor.isInteractivePrompt(screen))
+    }
+
+    // MARK: - isAcceptEditsPrompt excludes from isSelectionPrompt
+
+    func testAcceptEditsNotDetectedAsSelectionPrompt() {
+        // isSelectionPrompt should return false for accept-edits screens
+        // (they have ❯ markers but need different handling: Enter, not arrow keys)
+        let screen = """
+        Do you want to make this edit to main.swift?
+        ❯ Yes
+          No
+        """
+        XCTAssertFalse(ClaudeMonitor.isSelectionPrompt(screen))
+        XCTAssertTrue(ClaudeMonitor.isAcceptEditsPrompt(screen))
+        XCTAssertTrue(ClaudeMonitor.isInteractivePrompt(screen))
+    }
+
+    // MARK: - isClaudeAskingQuestion edge cases
+
+    func testNotAskingWhenNoPromptMarker() {
+        let lines = [
+            "Here is the output.",
+            "All done.",
+        ]
+        XCTAssertFalse(ClaudeMonitor.isClaudeAskingQuestion(lines))
+    }
+
+    func testNotAskingWhenLineAboveIsNotQuestion() {
+        let lines = [
+            "I created the file successfully.",
+            "❯",
+        ]
+        XCTAssertFalse(ClaudeMonitor.isClaudeAskingQuestion(lines))
+    }
+
+    func testAskingWhenLineAboveEndsWithQuestionMark() {
+        let lines = [
+            "I found 3 matching files.",
+            "Want me to examine them?",
+            "❯",
+        ]
+        XCTAssertTrue(ClaudeMonitor.isClaudeAskingQuestion(lines))
+    }
+
+    func testAskingWithEmptyLinesBetween() {
+        let lines = [
+            "Should I proceed with the refactor?",
+            "",
+            "❯",
+        ]
+        XCTAssertTrue(ClaudeMonitor.isClaudeAskingQuestion(lines))
+    }
 }

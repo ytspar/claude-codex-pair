@@ -366,6 +366,13 @@ class ClaudeMonitor: ObservableObject {
         return s
     }
 
+    /// Clear the injection queue for a session (used by test harness via IPC).
+    func clearQueue(for sessionId: String) {
+        if let st = sessionStates[sessionId] {
+            st.clearInjectionQueue()
+        }
+    }
+
     /// Transition session phase and sync published properties to the UI.
     /// Safe to call from any queue — dispatches to main if needed.
     private func transitionAndSync(_ st: SessionMonitorState, to phase: MonitorPhase,
@@ -858,9 +865,11 @@ class ClaudeMonitor: ObservableObject {
                 addTimeline(st, "SELECT", "Escape (selection stuck after \(st.consecutiveSelects) tries)")
                 st.consecutiveSelects = 0; session.sendEscape()
             } else {
-                PairLog.info("[\(session.id)] Selection prompt, using selectOption(\(option))")
-                addTimeline(st, "SELECT", "Selecting option \(option) via arrow keys", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
-                st.hadInteraction = true; session.selectOption(option)
+                PairLog.info("[\(session.id)] Selection prompt, typing \(option) + Enter")
+                addTimeline(st, "SELECT", "Selecting option \(option)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
+                st.hadInteraction = true
+                // Type the number directly — arrow keys don't work reliably with Claude Code's TUI
+                session.injectInput("\(option)\r")
             }
         } else if isSelection && !isNumericResponse {
             // Category mismatch: detected as selection prompt but Codex didn't return a number.

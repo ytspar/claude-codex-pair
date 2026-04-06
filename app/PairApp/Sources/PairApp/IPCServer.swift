@@ -174,6 +174,27 @@ class IPCServer {
             // Shell integration: log command execution
             return IPCResponse(ok: true)
 
+        case "clear_queue":
+            // Clear the injection queue for a session (used by test harness)
+            guard let surfaceId = request.surface else {
+                return IPCResponse(ok: false, error: "Missing surface")
+            }
+            ClaudeMonitor.shared.clearQueue(for: surfaceId)
+            return IPCResponse(ok: true)
+
+        case "remove_session":
+            // Remove a session and its monitor state (used by test harness cleanup)
+            guard let surfaceId = request.surface else {
+                return IPCResponse(ok: false, error: "Missing surface")
+            }
+            let removeSemaphore = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async {
+                SessionManager.shared.removeSession(surfaceId)
+                removeSemaphore.signal()
+            }
+            removeSemaphore.wait()
+            return IPCResponse(ok: true)
+
         default:
             return IPCResponse(ok: false, error: "Unknown action: \(request.action)")
         }

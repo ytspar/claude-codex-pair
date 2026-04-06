@@ -11,7 +11,16 @@ struct TaskQueueView: View {
     @State private var editText = ""
     @State private var draggingId: UUID? = nil
     @State private var dropTargetId: UUID? = nil
+    @State private var showCompleted = false
     @FocusState private var addFieldFocused: Bool
+
+    private var activeItems: [TaskQueue.TaskItem] {
+        queue.items.filter { $0.status == .pending || $0.status == .active }
+    }
+
+    private var doneItems: [TaskQueue.TaskItem] {
+        queue.items.filter { $0.status == .completed || $0.status == .failed }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -24,9 +33,14 @@ struct TaskQueueView: View {
                     .padding(.bottom, 4)
             }
 
-            // Task list
-            if !queue.items.isEmpty {
-                taskList
+            // Active / pending tasks
+            if !activeItems.isEmpty {
+                activeList
+            }
+
+            // Completed / failed tasks — collapsible
+            if !doneItems.isEmpty {
+                doneSection
             }
 
             // Add task input
@@ -35,11 +49,11 @@ struct TaskQueueView: View {
         }
     }
 
-    // MARK: - Task list
+    // MARK: - Active list (pending + active)
 
-    private var taskList: some View {
+    private var activeList: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(queue.items) { item in
+            ForEach(activeItems) { item in
                 if editingId == item.id {
                     editRow(item: item)
                 } else {
@@ -55,6 +69,46 @@ struct TaskQueueView: View {
                             dropTargetId: $dropTargetId
                         ))
                 }
+            }
+        }
+    }
+
+    // MARK: - Done section (completed + failed)
+
+    private var doneSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: { withAnimation(.easeOut(duration: 0.15)) { showCompleted.toggle() } }) {
+                HStack(spacing: 4) {
+                    Image(systemName: showCompleted ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 7, weight: .medium))
+                        .foregroundColor(tm.textMuted.opacity(0.5))
+                        .frame(width: 8)
+
+                    Text("Done (\(doneItems.count))")
+                        .font(Theme.monoTiny)
+                        .foregroundColor(tm.textMuted.opacity(0.5))
+
+                    Spacer()
+
+                    Button(action: { queue.clearDone() }) {
+                        Text("Clear")
+                            .font(Theme.monoTiny)
+                            .foregroundColor(tm.textMuted.opacity(0.4))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 8)
+            .padding(.horizontal, 2)
+
+            if showCompleted {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(doneItems) { item in
+                        doneRow(item: item)
+                    }
+                }
+                .padding(.top, 2)
             }
         }
     }
@@ -101,6 +155,33 @@ struct TaskQueueView: View {
                 : nil,
             alignment: .top
         )
+        .contentShape(Rectangle())
+        .contextMenu { contextMenu(item: item) }
+    }
+
+    private func doneRow(item: TaskQueue.TaskItem) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            statusDot(item.status)
+                .padding(.top, 4)
+                .opacity(0.6)
+
+            Text(item.prompt)
+                .font(Theme.monoTiny)
+                .foregroundColor(tm.textMuted.opacity(0.4))
+                .strikethrough(item.status == .completed, color: tm.textMuted.opacity(0.3))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button(action: { queue.removeTask(id: item.id) }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8))
+                    .foregroundColor(tm.textMuted.opacity(0.3))
+                    .frame(width: 16, height: 16)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, 3)
+        .padding(.horizontal, 2)
         .contentShape(Rectangle())
         .contextMenu { contextMenu(item: item) }
     }

@@ -29,6 +29,8 @@ interface WatchState {
 	restartCount: number;
 	crashCount: number;
 	lastCrashLog: string | null;
+	cleanExit: boolean;
+	sawExternalProcess: boolean;
 	debounceTimer: ReturnType<typeof setTimeout> | null;
 	watchers: FSWatcher[];
 	appProcess: ChildProcess | null;
@@ -43,6 +45,8 @@ const state: WatchState = {
 	restartCount: 0,
 	crashCount: 0,
 	lastCrashLog: null,
+	cleanExit: false,
+	sawExternalProcess: false,
 	debounceTimer: null,
 	watchers: [],
 	appProcess: null,
@@ -161,6 +165,7 @@ async function ensureProjectSession(): Promise<string | null> {
 /** Kill old PairApp and start new one.
  *  Launches as a managed child process to capture crash output. */
 async function hotRestart(): Promise<boolean> {
+	state.cleanExit = false;
 	// Kill existing process (managed or orphan)
 	if (state.appProcess && !state.appProcess.killed) {
 		state.appProcess.kill("SIGTERM");
@@ -198,7 +203,12 @@ async function hotRestart(): Promise<boolean> {
 	});
 
 	child.on("exit", (code, signal) => {
-		if (code === 0 || signal === "SIGTERM") return;  // Clean exit
+		if (code === 0 || signal === "SIGTERM") {
+			state.cleanExit = true;
+			state.appProcess = null;
+			log("PairApp exited cleanly — not restarting");
+			return;
+		}
 		state.crashCount++;
 		state.lastCrashLog = stderrBuf || `exit code ${code}, signal ${signal}`;
 		logError(`PairApp crashed (exit=${code}, signal=${signal}, crash #${state.crashCount})`);
@@ -360,6 +370,7 @@ export async function startWatchDaemon() {
 	let crashBackoff = 0;
 	const healthCheck = setInterval(async () => {
 		if (state.building) return;
+		if (state.cleanExit) return;  // User quit intentionally — don't restart
 		const alive = state.appProcess && state.appProcess.exitCode === null;
 		if (alive) { crashBackoff = 0; return; }
 

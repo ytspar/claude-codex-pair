@@ -187,6 +187,13 @@ class TaskQueue: ObservableObject {
         }
     }
 
+    func clearDone() {
+        onMain {
+            self.items.removeAll { $0.status == .completed || $0.status == .failed }
+            self.save()
+        }
+    }
+
     func clearAll() {
         onMain {
             self.items.removeAll()
