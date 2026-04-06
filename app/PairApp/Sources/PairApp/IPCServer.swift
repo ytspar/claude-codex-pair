@@ -12,12 +12,26 @@ class IPCServer {
     private var isRunning = false
     private let queue = DispatchQueue(label: "pair-app.ipc", qos: .userInitiated)
     private var acceptSource: DispatchSourceRead?
+    private(set) var authToken: String = ""
+
+    static var tokenPath: String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return "\(home)/.claude-codex-pair/auth-token"
+    }
 
     func start() {
         let path = Self.socketPath
         let dir = (path as NSString).deletingLastPathComponent
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         unlink(path)
+
+        // Generate auth token and write with restricted permissions
+        var bytes = [UInt8](repeating: 0, count: 32)
+        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        authToken = bytes.map { String(format: "%02x", $0) }.joined()
+        let tokenPath = Self.tokenPath
+        FileManager.default.createFile(atPath: tokenPath, contents: authToken.data(using: .utf8))
+        chmod(tokenPath, 0o600)
 
         serverSocket = socket(AF_UNIX, SOCK_STREAM, 0)
         guard serverSocket >= 0 else { return }
@@ -32,15 +46,18 @@ class IPCServer {
             }
         }
 
+        // Set restrictive umask before bind so socket is never world-accessible
+        let oldMask = umask(0o077)
         let bindResult = withUnsafePointer(to: &addr) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                 bind(serverSocket, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
+        umask(oldMask)
         guard bindResult == 0 else { close(serverSocket); return }
         guard listen(serverSocket, 5) == 0 else { close(serverSocket); return }
 
-        // Restrict socket to current user only
+        // Belt-and-suspenders: also chmod in case umask wasn't effective
         chmod(path, 0o600)
 
         isRunning = true
@@ -82,6 +99,10 @@ class IPCServer {
             let n = read(fd, &buffer, buffer.count)
             if n <= 0 { break }
             accumulated.append(contentsOf: buffer[0..<n])
+            if accumulated.count > 1_048_576 {
+                sendResponse(fd, IPCResponse(ok: false, error: "Request too large (>1MB)"))
+                return
+            }
             if let _ = try? JSONDecoder().decode(IPCRequest.self, from: accumulated) { break }
         }
 
@@ -96,6 +117,11 @@ class IPCServer {
     }
 
     private func dispatch(_ request: IPCRequest) -> IPCResponse {
+        // Validate auth token on all requests
+        guard request.token == authToken else {
+            return IPCResponse(ok: false, error: "Invalid or missing auth token")
+        }
+
         switch request.action {
         case "send_input":
             guard let surfaceId = request.surface, let text = request.text else {
@@ -108,7 +134,9 @@ class IPCServer {
                 success = SessionManager.shared.sendInput(sessionId: surfaceId, text: text)
                 semaphore.signal()
             }
-            semaphore.wait()
+            if semaphore.wait(timeout: .now() + 10) == .timedOut {
+                return IPCResponse(ok: false, error: "Timed out waiting for main thread")
+            }
             return IPCResponse(ok: success, error: success ? nil : "Session not found")
 
         case "list_sessions":
@@ -138,7 +166,9 @@ class IPCServer {
                 screenText = session.readScreen()
                 semaphore.signal()
             }
-            semaphore.wait()
+            if semaphore.wait(timeout: .now() + 10) == .timedOut {
+                return IPCResponse(ok: false, error: "Timed out waiting for main thread")
+            }
             return IPCResponse(ok: true, result: screenText)
 
         case "send_key":
@@ -192,7 +222,9 @@ class IPCServer {
                 SessionManager.shared.removeSession(surfaceId)
                 removeSemaphore.signal()
             }
-            removeSemaphore.wait()
+            if removeSemaphore.wait(timeout: .now() + 10) == .timedOut {
+                return IPCResponse(ok: false, error: "Timed out waiting for main thread")
+            }
             return IPCResponse(ok: true)
 
         default:
@@ -243,6 +275,7 @@ struct IPCRequest: Codable {
     let action: String
     let surface: String?
     let text: String?
+    let token: String?
 }
 
 struct IPCResponse: Codable {

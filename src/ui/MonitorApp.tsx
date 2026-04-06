@@ -8,7 +8,7 @@ interface Props {
 	project: string;
 }
 
-export function MonitorApp({ sessionId, project }: Props) {
+export function MonitorApp({ sessionId, project }: Props): JSX.Element {
 	const { exit } = useApp();
 	const { stdout } = useStdout();
 	const [sessions, setSessions] = useState<ActiveSession[]>([]);

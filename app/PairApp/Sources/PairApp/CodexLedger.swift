@@ -9,6 +9,7 @@ import Foundation
 /// - `context.md` — human-readable project context that Codex reads each review
 /// - `strategy.md` — persistent per-project strategy memory (what works/doesn't)
 class CodexLedger {
+    private static let fileLock = NSLock()
     private let projectDir: String
     private let ledgerDir: String
 
@@ -121,35 +122,37 @@ class CodexLedger {
 
     /// Update the most recent ledger entry with outcome and post-intervention progress.
     func recordOutcome(outcome: String, progressAfter: ProgressSignal) {
-        guard let content = try? String(contentsOfFile: ledgerPath, encoding: .utf8) else { return }
-        var lines = content.split(separator: "\n").map(String.init)
-        guard let lastIdx = lines.indices.last else { return }
+        Self.fileLock.withLock {
+            guard let content = try? String(contentsOfFile: ledgerPath, encoding: .utf8) else { return }
+            var lines = content.split(separator: "\n").map(String.init)
+            guard let lastIdx = lines.indices.last else { return }
 
-        let decoder = JSONDecoder()
-        let encoder = JSONEncoder()
-        guard let data = lines[lastIdx].data(using: .utf8),
-              let entry = try? decoder.decode(LedgerEntry.self, from: data) else { return }
+            let decoder = JSONDecoder()
+            let encoder = JSONEncoder()
+            guard let data = lines[lastIdx].data(using: .utf8),
+                  let entry = try? decoder.decode(LedgerEntry.self, from: data) else { return }
 
-        // Re-encode with outcome filled in
-        let updated = LedgerEntry(
-            timestamp: entry.timestamp,
-            cycle: entry.cycle,
-            decision: entry.decision,
-            response: entry.response,
-            screenTail: entry.screenTail,
-            diffSummary: entry.diffSummary,
-            wasLooping: entry.wasLooping,
-            durationMs: entry.durationMs,
-            outcome: outcome,
-            progressBefore: entry.progressBefore,
-            progressAfter: progressAfter
-        )
-        guard let updatedData = try? encoder.encode(updated),
-              let updatedLine = String(data: updatedData, encoding: .utf8) else { return }
+            // Re-encode with outcome filled in
+            let updated = LedgerEntry(
+                timestamp: entry.timestamp,
+                cycle: entry.cycle,
+                decision: entry.decision,
+                response: entry.response,
+                screenTail: entry.screenTail,
+                diffSummary: entry.diffSummary,
+                wasLooping: entry.wasLooping,
+                durationMs: entry.durationMs,
+                outcome: outcome,
+                progressBefore: entry.progressBefore,
+                progressAfter: progressAfter
+            )
+            guard let updatedData = try? encoder.encode(updated),
+                  let updatedLine = String(data: updatedData, encoding: .utf8) else { return }
 
-        lines[lastIdx] = updatedLine
-        try? lines.joined(separator: "\n").appending("\n")
-            .write(toFile: ledgerPath, atomically: true, encoding: .utf8)
+            lines[lastIdx] = updatedLine
+            try? lines.joined(separator: "\n").appending("\n")
+                .write(toFile: ledgerPath, atomically: true, encoding: .utf8)
+        }
     }
 
     /// Compute outcome by comparing before/after progress signals.
@@ -202,42 +205,44 @@ class CodexLedger {
     /// Get recent decision history with outcomes, formatted for Codex prompt.
     /// This is the Reflexion-style feedback loop — Codex sees what it tried and whether it helped.
     func recentHistoryWithOutcomes(limit: Int = 5) -> String? {
-        guard let content = try? String(contentsOfFile: ledgerPath, encoding: .utf8) else {
-            return nil
-        }
-        let lines = content.split(separator: "\n").suffix(limit)
-        guard !lines.isEmpty else { return nil }
-
-        let decoder = JSONDecoder()
-        var summaries: [String] = []
-        var outcomes: [String: Int] = ["improved": 0, "regressed": 0, "neutral": 0]
-
-        for line in lines {
-            guard let data = line.data(using: .utf8),
-                  let entry = try? decoder.decode(LedgerEntry.self, from: data) else { continue }
-            let ago = timeAgo(entry.timestamp)
-            let loopTag = entry.wasLooping ? " [LOOP]" : ""
-            let outcomeTag: String
-            switch entry.outcome {
-            case "improved": outcomeTag = " ✓improved"
-            case "regressed": outcomeTag = " ✗regressed"
-            case "neutral": outcomeTag = " ~neutral"
-            default: outcomeTag = ""
+        Self.fileLock.withLock {
+            guard let content = try? String(contentsOfFile: ledgerPath, encoding: .utf8) else {
+                return nil
             }
-            if let o = entry.outcome { outcomes[o, default: 0] += 1 }
-            summaries.append("- \(ago): \(entry.decision)\(loopTag)\(outcomeTag) — \(entry.response.prefix(80))")
-        }
-        guard !summaries.isEmpty else { return nil }
+            let lines = content.split(separator: "\n").suffix(limit)
+            guard !lines.isEmpty else { return nil }
 
-        // Add effectiveness summary
-        let total = outcomes.values.reduce(0, +)
-        let improved = outcomes["improved"] ?? 0
-        let regressed = outcomes["regressed"] ?? 0
-        if total > 0 {
-            summaries.insert("Effectiveness: \(improved)/\(total) improved, \(regressed)/\(total) regressed", at: 0)
-        }
+            let decoder = JSONDecoder()
+            var summaries: [String] = []
+            var outcomes: [String: Int] = ["improved": 0, "regressed": 0, "neutral": 0]
 
-        return summaries.joined(separator: "\n")
+            for line in lines {
+                guard let data = line.data(using: .utf8),
+                      let entry = try? decoder.decode(LedgerEntry.self, from: data) else { continue }
+                let ago = timeAgo(entry.timestamp)
+                let loopTag = entry.wasLooping ? " [LOOP]" : ""
+                let outcomeTag: String
+                switch entry.outcome {
+                case "improved": outcomeTag = " ✓improved"
+                case "regressed": outcomeTag = " ✗regressed"
+                case "neutral": outcomeTag = " ~neutral"
+                default: outcomeTag = ""
+                }
+                if let o = entry.outcome { outcomes[o, default: 0] += 1 }
+                summaries.append("- \(ago): \(entry.decision)\(loopTag)\(outcomeTag) — \(entry.response.prefix(80))")
+            }
+            guard !summaries.isEmpty else { return nil }
+
+            // Add effectiveness summary
+            let total = outcomes.values.reduce(0, +)
+            let improved = outcomes["improved"] ?? 0
+            let regressed = outcomes["regressed"] ?? 0
+            if total > 0 {
+                summaries.insert("Effectiveness: \(improved)/\(total) improved, \(regressed)/\(total) regressed", at: 0)
+            }
+
+            return summaries.joined(separator: "\n")
+        }
     }
 
     /// Legacy method for backward compatibility
@@ -393,12 +398,23 @@ class CodexLedger {
 
         let path = ledgerPath
         DispatchQueue.global(qos: .utility).async {
-            if let handle = FileHandle(forWritingAtPath: path) {
-                handle.seekToEndOfFile()
-                handle.write(Data((line + "\n").utf8))
-                handle.closeFile()
-            } else {
-                try? (line + "\n").write(toFile: path, atomically: true, encoding: .utf8)
+            Self.fileLock.withLock {
+                if let handle = FileHandle(forWritingAtPath: path) {
+                    handle.seekToEndOfFile()
+                    handle.write(Data((line + "\n").utf8))
+                    handle.closeFile()
+                } else {
+                    try? (line + "\n").write(toFile: path, atomically: true, encoding: .utf8)
+                }
+                // Rotate if file exceeds 5MB: keep only the last 1000 lines
+                if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+                   let size = attrs[.size] as? UInt64, size > 5_000_000 {
+                    if let content = try? String(contentsOfFile: path, encoding: .utf8) {
+                        let lines = content.split(separator: "\n").suffix(1000)
+                        try? lines.joined(separator: "\n").appending("\n")
+                            .write(toFile: path, atomically: true, encoding: .utf8)
+                    }
+                }
             }
         }
     }

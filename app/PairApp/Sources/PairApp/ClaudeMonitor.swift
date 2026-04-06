@@ -6,6 +6,14 @@ struct InjectionItem {
     let text: String
     let source: Source
     let enqueuedAt: Date = Date()
+    /// For task queue items, the task ID so we can reset it on expiry.
+    let taskId: UUID?
+
+    init(text: String, source: Source, taskId: UUID? = nil) {
+        self.text = text
+        self.source = source
+        self.taskId = taskId
+    }
 }
 
 /// Monitor phase — single source of truth for the review state machine.
@@ -213,13 +221,13 @@ class SessionMonitorState {
     // MARK: - Injection queue
 
     /// Enqueue text to be injected when Claude is next at an empty prompt.
-    func enqueue(_ text: String, source: InjectionItem.Source) {
+    func enqueue(_ text: String, source: InjectionItem.Source, taskId: UUID? = nil) {
         lock.withLock {
             // For feedback, replace any existing queued feedback (only latest matters)
             if source == .codexFeedback {
                 _injectionQueue.removeAll { $0.source == .codexFeedback }
             }
-            _injectionQueue.append(InjectionItem(text: text, source: source))
+            _injectionQueue.append(InjectionItem(text: text, source: source, taskId: taskId))
         }
     }
 
@@ -227,7 +235,14 @@ class SessionMonitorState {
     func dequeueNext() -> InjectionItem? {
         lock.withLock {
             guard !_injectionQueue.isEmpty else { return nil }
-            // Expire items older than 120s
+            // Expire items older than 120s — reset expired task queue items to pending
+            let expired = _injectionQueue.filter { -$0.enqueuedAt.timeIntervalSinceNow > 120 }
+            for item in expired where item.source == .taskQueue {
+                if let taskId = item.taskId {
+                    TaskQueue.shared.retry(id: taskId)
+                    PairLog.info("[\(sessionId)] Expired task queue item reset to pending: \(item.text.prefix(60))")
+                }
+            }
             _injectionQueue.removeAll { -$0.enqueuedAt.timeIntervalSinceNow > 120 }
             guard !_injectionQueue.isEmpty else { return nil }
             // Task queue items first
@@ -326,7 +341,8 @@ class ClaudeMonitor: ObservableObject {
     private let codexQueue = DispatchQueue(label: "claude-monitor-codex", qos: .userInitiated)
     private var dispatchTimer: DispatchSourceTimer?
     private var pollCount = 0
-    private var sessionStates: [String: SessionMonitorState] = [:]
+    let sessionStatesLock = NSLock()  // internal for FeedbackHandler extension
+    var sessionStates: [String: SessionMonitorState] = [:]  // internal for FeedbackHandler extension
 
     // Eval layer constants (immutable)
     private let stableThreshold = 3
@@ -360,22 +376,23 @@ class ClaudeMonitor: ObservableObject {
     func stop() { dispatchTimer?.cancel(); dispatchTimer = nil }
 
     private func state(for sessionId: String) -> SessionMonitorState {
-        if let s = sessionStates[sessionId] { return s }
-        let s = SessionMonitorState(sessionId: sessionId)
-        sessionStates[sessionId] = s
-        return s
+        sessionStatesLock.withLock {
+            if let s = sessionStates[sessionId] { return s }
+            let s = SessionMonitorState(sessionId: sessionId)
+            sessionStates[sessionId] = s
+            return s
+        }
     }
 
     /// Clear the injection queue for a session (used by test harness via IPC).
     func clearQueue(for sessionId: String) {
-        if let st = sessionStates[sessionId] {
-            st.clearInjectionQueue()
-        }
+        let st = sessionStatesLock.withLock { sessionStates[sessionId] }
+        st?.clearInjectionQueue()
     }
 
     /// Transition session phase and sync published properties to the UI.
     /// Safe to call from any queue — dispatches to main if needed.
-    private func transitionAndSync(_ st: SessionMonitorState, to phase: MonitorPhase,
+    func transitionAndSync(_ st: SessionMonitorState, to phase: MonitorPhase,  // internal for FeedbackHandler extension
                                     resetCounters: Bool = false, reason: String = "") {
         st.transition(to: phase, resetCounters: resetCounters, reason: reason)
         if Thread.isMainThread {
@@ -386,12 +403,13 @@ class ClaudeMonitor: ObservableObject {
     }
 
     func removeSession(_ sessionId: String) {
-        if let st = sessionStates[sessionId] {
+        let st = sessionStatesLock.withLock { sessionStates[sessionId] }
+        if let st {
             st.sessionRemoved = true
             st.transition(to: .idle, reason: "session removed")
             st.clearInjectionQueue()
         }
-        sessionStates.removeValue(forKey: sessionId)
+        sessionStatesLock.withLock { sessionStates.removeValue(forKey: sessionId) }
         if let active = TaskQueue.shared.activeTask {
             PairLog.info("Session \(sessionId) removed — resetting active task to pending: \(active.title)")
             TaskQueue.shared.retry(id: active.id)
@@ -433,7 +451,7 @@ class ClaudeMonitor: ObservableObject {
             }
             if let nextTask = TaskQueue.shared.nextPending() {
                 TaskQueue.shared.markActive(id: nextTask.id)
-                st.enqueue(nextTask.prompt, source: .taskQueue)
+                st.enqueue(nextTask.prompt, source: .taskQueue, taskId: nextTask.id)
                 PairLog.info("[\(session.id)] Task queued for injection: \(nextTask.title)")
             }
         }
@@ -452,9 +470,9 @@ class ClaudeMonitor: ObservableObject {
         return true
     }
 
-    private func syncPublished() {
+    func syncPublished() {  // internal for FeedbackHandler extension
         guard let activeId = SessionManager.shared.activeSessionId,
-              let s = sessionStates[activeId] else {
+              let s = sessionStatesLock.withLock({ sessionStates[activeId] }) else {
             status = "idle"; timeline = []; cycleCount = 0; lastCodexResponse = ""
             backoffMultiplier = 1.0; consecutiveUnhelpful = 0
             return
@@ -474,7 +492,7 @@ class ClaudeMonitor: ObservableObject {
         return isAtClaudePrompt(screen)
     }
 
-    private func addTimeline(_ st: SessionMonitorState, _ event: String, _ detail: String, source: TimelineSource = .monitor, durationMs: Int? = nil, screenSnippet: String? = nil, codexPrompt: String? = nil, codexResponse: String? = nil, diffSummary: String? = nil) {
+    func addTimeline(_ st: SessionMonitorState, _ event: String, _ detail: String, source: TimelineSource = .monitor, durationMs: Int? = nil, screenSnippet: String? = nil, codexPrompt: String? = nil, codexResponse: String? = nil, diffSummary: String? = nil) {  // internal for FeedbackHandler extension
         let entry = TimelineEntry(time: Date(), event: event, detail: detail, sessionId: st.sessionId, source: source, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: codexPrompt, codexResponse: codexResponse, diffSummary: diffSummary)
         DispatchQueue.main.async {
             st.timeline.insert(entry, at: 0)
@@ -680,11 +698,7 @@ class ClaudeMonitor: ObservableObject {
 
     // MARK: - Codex review
 
-    private struct CodexResult {
-        let response: String?
-        let prompt: String
-        let diffSummary: String?
-    }
+    private typealias CodexResult = CodexIntegration.CodexResult
 
     private func triggerCodexReview(screenText: String, session: PairSession, st: SessionMonitorState, retryCount: Int = 0, claudeLooping: Bool = false) {
         // Phase is already .reviewing from beginReviewCycle's transition call
@@ -821,508 +835,79 @@ class ClaudeMonitor: ObservableObject {
         }
     }
 
-    private func handleFeedback(response: String, screenText: String, session: PairSession, st: SessionMonitorState, isSelection: Bool, durationMs: Int?, screenSnippet: String, prompt: String, diffSummary: String?) {
-        // Phase is already .feedback from caller's transition
-
-        // CARDINAL RULE: Re-read the screen RIGHT NOW. If the prompt is not empty,
-        // someone (user or prior injection) has text there. Do not touch it.
-        let currentScreen = session.readScreen()
-        if !isPromptEmpty(currentScreen) && !isSelection {
-            PairLog.info("[\(session.id)] Prompt not empty — discarding Codex feedback to protect user input")
-            addTimeline(st, "SKIPPED", "Prompt not empty — protected user input", source: .monitor, durationMs: durationMs, codexPrompt: prompt, codexResponse: response)
-            return
-        }
-
-        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
-        let isNumericResponse = Int(trimmed) != nil
-        let userTypedDuringReview: Bool = {
-            guard let start = st.reviewStartTime else { return false }
-            return session.lastInputSource == .user && session.lastMachineInputTime < start
-        }()
-        let userOwnsInput = session.lastInputSource == .user
-        let isAcceptEdits = Self.isAcceptEditsPrompt(screenText)
-        let codexWantsApprove = response.uppercased().contains("APPROVE") || isNumericResponse
-
-        if userOwnsInput {
-            st.consecutiveSelects = 0
-            PairLog.info("[\(session.id)] User is typing — discarding Codex response, user owns this input")
-            addTimeline(st, "SKIPPED", "User is typing — Codex deferred: \(response)", source: .user, durationMs: durationMs, codexPrompt: prompt, codexResponse: response)
-        } else if isAcceptEdits && codexWantsApprove {
-            st.consecutiveSelects += 1
-            if st.consecutiveSelects > 3 {
-                PairLog.error("[\(session.id)] Accept-edits prompt stuck, sending Escape")
-                addTimeline(st, "SELECT", "Escape (accept-edits stuck after \(st.consecutiveSelects) tries)")
-                st.consecutiveSelects = 0; session.sendEscape()
-            } else {
-                PairLog.info("[\(session.id)] Accept-edits prompt detected, pressing Enter (\(st.consecutiveSelects))")
-                addTimeline(st, "SELECT", "Accepting edits (Enter)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet)
-                st.hadInteraction = true; session.sendEnter()
-            }
-        } else if isSelection && isNumericResponse, let option = Int(trimmed) {
-            st.consecutiveSelects += 1
-            if st.consecutiveSelects > 5 {
-                PairLog.error("[\(session.id)] Selection prompt stuck, sending Escape")
-                addTimeline(st, "SELECT", "Escape (selection stuck after \(st.consecutiveSelects) tries)")
-                st.consecutiveSelects = 0; session.sendEscape()
-            } else {
-                PairLog.info("[\(session.id)] Selection prompt, typing \(option) + Enter")
-                addTimeline(st, "SELECT", "Selecting option \(option)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
-                st.hadInteraction = true
-                // Type the number directly — arrow keys don't work reliably with Claude Code's TUI
-                session.injectInput("\(option)\r")
-            }
-        } else if isSelection && !isNumericResponse {
-            // Category mismatch: detected as selection prompt but Codex didn't return a number.
-            // Record for self-improvement, then try to handle gracefully.
-            let ledger = CodexLedger(projectDir: session.cwd)
-            ledger.recordUnmatchedPrompt(screenTail: screenSnippet, expectedCategory: "selection", codexResponse: trimmed)
-            PairLog.info("[\(session.id)] Selection prompt got non-numeric response '\(trimmed.prefix(50))' — recorded for pattern improvement")
-            addTimeline(st, "UNMATCHED", "Selection expected number, got: \(trimmed.prefix(80))", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
-            // Try pressing Enter as fallback (selects default/first option)
-            st.hadInteraction = true; session.sendEnter()
-        } else if userTypedDuringReview {
-            st.consecutiveSelects = 0
-            PairLog.info("[\(session.id)] User typed during review — queueing Codex feedback")
-            let cleaned = Self.stripLearnings(response)
-            if !cleaned.isEmpty { st.enqueue(cleaned, source: .codexFeedback) }
-            addTimeline(st, "FEEDBACK", "Queued (user also responded): \(response)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
-            st.hadInteraction = true
-        } else {
-            st.consecutiveSelects = 0
-            addTimeline(st, "FEEDBACK", response, source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
-            st.hadInteraction = true
-            let cleaned = Self.stripLearnings(response)
-            if !cleaned.isEmpty { st.enqueue(cleaned, source: .codexFeedback) }
-        }
-        // After feedback, wait for the screen to actually change before reviewing again.
-        // The 1s cooldown was too aggressive — Codex would re-trigger on the same prompt.
-        // Require at least 5s AND a screen change before the next review.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-            self.transitionAndSync(st, to: .watching, reason: "post-feedback cooldown")
-            st.stableCount = 0
-            st.changeCount = 0  // Force waiting for new screen changes
-        }
-    }
-
-    // MARK: - User feedback (thumbs up/down)
-
-    /// Rate an intervention as helpful or unhelpful. Overrides the git-based outcome.
-    func rateIntervention(entryId: UUID, rating: String) {
-        // Update session counters based on user rating
-        if rating == "improved" {
-            sessionImproved += 1
-            // User says it helped — reduce backoff
-            if let activeId = SessionManager.shared.activeSessionId,
-               let st = sessionStates[activeId] {
-                st.consecutiveUnhelpful = max(0, st.consecutiveUnhelpful - 1)
-                if st.consecutiveUnhelpful < 3 { st.backoffMultiplier = 1.0 }
-                syncPublished()
-            }
-        } else if rating == "regressed" {
-            sessionRegressed += 1
-            // User says it hurt — increase backoff
-            if let activeId = SessionManager.shared.activeSessionId,
-               let st = sessionStates[activeId] {
-                st.consecutiveUnhelpful += 1
-                updateBackoff(st)
-                syncPublished()
-            }
-        }
-        // Find the timeline entry and log the rating
-        if let activeId = SessionManager.shared.activeSessionId,
-           let st = sessionStates[activeId],
-           let entry = st.timeline.first(where: { $0.id == entryId }) {
-            PairLog.info("[\(activeId)] User rated intervention '\(entry.event)' as \(rating)")
-            // Record to ledger for strategy learning
-            if let cwd = SessionManager.shared.sessions.first(where: { $0.id == activeId })?.cwd {
-                let ledger = CodexLedger(projectDir: cwd)
-                ledger.appendLearning("User rated '\(entry.detail.prefix(60))' as \(rating)")
-            }
-        }
-    }
-
-    // MARK: - Backoff management
-
-    private func updateBackoff(_ st: SessionMonitorState) {
-        // Backoff disabled: the system should always keep moving forward.
-        // Claude conversations often don't produce git commits (questions,
-        // discussions, planning) — that's normal, not a reason to slow down.
-        // The backoff counter is still tracked for UI/logging but multiplier stays at 1.
-        st.backoffMultiplier = 1.0
-    }
-
-    // MARK: - Screen detection helpers (immutable eval layer)
+    // MARK: - Screen detection helpers (thin wrappers — logic lives in ScreenDetection.swift)
 
     private func isStillWorking(_ screenText: String) -> Bool {
-        let tail = screenText.split(separator: "\n").suffix(15).joined(separator: "\n").lowercased()
-        let patterns = ["agent still running", "still working", "waiting for", "let me wait", "let it finish", "wait for it to complete", "in progress", "tasks (", "churned for", "running agent"]
-        let hasOpenTask = tail.contains("open)") || tail.contains("□") || tail.contains("⠋") || tail.contains("⠙") || tail.contains("⠸")
-        let hasWaitLanguage = patterns.contains { tail.contains($0) }
-        return hasWaitLanguage && (hasOpenTask || tail.contains("still") || tail.contains("wait"))
+        ScreenDetection.isStillWorking(screenText)
     }
 
     private func isModalView(_ screenText: String) -> Bool {
-        let lower = screenText.lowercased()
-        return lower.contains("esc to close") || lower.contains("←/esc to close")
+        ScreenDetection.isModalView(screenText)
     }
 
     private func isStuck(_ screenText: String) -> Bool {
-        let tail = screenText.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.suffix(20).joined(separator: "\n").lowercased()
-        return tail.contains("interrupted") || tail.contains("error:") || tail.contains("failed to") || tail.contains("apiconnectionerror") || tail.contains("what should claude do") || tail.contains("rate limit") || tail.contains("overloaded") || tail.contains("try again")
+        ScreenDetection.isStuck(screenText)
     }
 
-    private func isPromptEmpty(_ screenText: String) -> Bool {
-        let lines = screenText.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        if lines.contains(where: { $0.contains("[Pasted text") }) { return false }
-        guard let lastNonEmpty = lines.last(where: { !$0.isEmpty }) else { return true }
-        // Strip cursor/block characters for clean comparison
-        let stripped = String(lastNonEmpty.unicodeScalars.filter { $0.value >= 0x20 && $0.value < 0x2580 || $0 == " " })
-            .trimmingCharacters(in: .whitespaces)
-        if let range = stripped.range(of: "❯") {
-            return stripped[range.upperBound...].trimmingCharacters(in: .whitespaces).isEmpty
-        }
-        if stripped.hasSuffix(">") || stripped == ">" || stripped.hasSuffix("> ") { return true }
-        // Also check original in case ❯ is in the raw text
-        if let range = lastNonEmpty.range(of: "❯") {
-            return lastNonEmpty[range.upperBound...].trimmingCharacters(in: .whitespaces).isEmpty
-        }
-        if lastNonEmpty.hasSuffix(">") || lastNonEmpty.hasSuffix("> ") { return true }
-        return true
+    func isPromptEmpty(_ screenText: String) -> Bool {  // internal for FeedbackHandler extension
+        ScreenDetection.isPromptEmpty(screenText)
     }
 
     private func isAtClaudePrompt(_ screenText: String) -> Bool {
-        let lines = screenText.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-
-        // Scan the last several lines — Claude Code renders separator bars (─────)
-        // below the ❯ prompt line, so the last non-empty line is often a rule, not the prompt.
-        let tail = lines.suffix(6)
-        let isClaudePrompt = tail.contains { line in
-            let s = line.trimmingCharacters(in: .whitespaces)
-            return s.hasPrefix("❯") || s == "❯"
-        }
-
-        // Bare angle bracket (>) check — also scan tail lines
-        let isBareAngle = !isClaudePrompt && tail.contains { line in
-            let s = String(line.unicodeScalars.filter { $0.value >= 0x20 && $0.value < 0x2580 || $0 == " " })
-                .trimmingCharacters(in: .whitespaces)
-            return s == ">" || s.hasSuffix("> ")
-        }
-        if isBareAngle {
-            let lower = screenText.lowercased()
-            if !(lower.contains("claude") || lower.contains("tool use") || lower.contains("compact") || lower.contains("autocompact") || lower.contains("cost:") || lower.contains("tokens") || lower.contains("opus") || lower.contains("sonnet")) { return false }
-        }
-        return (isClaudePrompt || isBareAngle) && !Self.isSelectionPrompt(screenText)
+        ScreenDetection.isAtClaudePrompt(screenText)
     }
 
     private func isInterruptedPrompt(_ screenText: String) -> Bool {
-        let lower = screenText.lowercased()
-        return lower.contains("interrupted") && lower.contains("what should claude do")
+        ScreenDetection.isInterruptedPrompt(screenText)
     }
 
     static func isAcceptEditsPrompt(_ screenText: String) -> Bool {
-        let lower = screenText.lowercased()
-        return lower.contains("accept edits on") || lower.contains("shift+tab to cycle") || lower.contains("shift-tab to cycle") || lower.contains("do you want to make this edit")
+        ScreenDetection.isAcceptEditsPrompt(screenText)
     }
 
     static func isSelectionPrompt(_ screenText: String) -> Bool {
-        if isAcceptEditsPrompt(screenText) { return false }
-        let lines = screenText.split(separator: "\n").map(String.init)
-        let hasArrowMarker = lines.contains { line in
-            let t = line.trimmingCharacters(in: .whitespaces)
-            if let r = t.range(of: "❯") ?? t.range(of: "›") {
-                let after = t[r.upperBound...].trimmingCharacters(in: .whitespaces)
-                return !after.isEmpty && after.count > 1
-            }
-            return false
-        }
-        let numberedLines = lines.filter { let t = $0.trimmingCharacters(in: .whitespaces); return t.hasPrefix("1.") || t.hasPrefix("2.") || t.hasPrefix("3.") }
-        let hasPermissionKeywords = lines.contains { let l = $0.lowercased(); return (l.contains("yes") && l.contains("allow")) || l.contains("do you want to") || l.contains("permission") }
-        return hasArrowMarker || numberedLines.count >= 2 || hasPermissionKeywords
+        ScreenDetection.isSelectionPrompt(screenText)
     }
 
     static func isInteractivePrompt(_ screenText: String) -> Bool {
-        if isSelectionPrompt(screenText) || isAcceptEditsPrompt(screenText) { return true }
-        let lines = screenText.split(separator: "\n").map(String.init)
-        let tailLower = lines.suffix(20).joined(separator: "\n").lowercased()
-        if tailLower.contains("esc to cancel") && !tailLower.contains("esc to close") { return true }
-        if tailLower.contains("(y/n)") || tailLower.contains("[y/n]") || tailLower.contains("(yes/no)") || tailLower.contains("[yes/no]") { return true }
-        if tailLower.contains("do you want to") { return true }
-        if tailLower.contains("trust this") || tailLower.contains("allow this mcp") || (tailLower.contains("mcp server") && tailLower.contains("allow")) { return true }
-        if tailLower.contains("press enter") || tailLower.contains("press any key") { return true }
-        if tailLower.contains("are you sure") || tailLower.contains("proceed?") || tailLower.contains("continue?") { return true }
-        if tailLower.contains("would you like") || tailLower.contains("run command") || tailLower.contains("allow command") { return true }
-        if tailLower.contains("do you want to make this") { return true }
-        if let lastNonEmpty = lines.last(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) {
-            let t = lastNonEmpty.trimmingCharacters(in: .whitespaces)
-            if t.hasSuffix("?") {
-                let lower = screenText.lowercased()
-                if lower.contains("claude") || lower.contains("tool use") || lower.contains("compact") || lower.contains("cost:") || lower.contains("tokens") { return true }
-            }
-        }
-        // Check if Claude's output (above the prompt) ends with a question.
-        // Claude often finishes work and asks "Want me to X?" or "Should I Y?"
-        // The prompt line (❯) is empty but Claude is waiting for a user answer.
-        if Self.isClaudeAskingQuestion(lines) {
-            return true
-        }
-        return false
+        ScreenDetection.isInteractivePrompt(screenText)
     }
 
-    /// Detect when Claude's output (above the ❯ prompt) ends with a question
-    /// directed at the user. Scans the last few lines before the prompt for "?".
-    /// This catches cases like "Want me to dig deeper?" or "Should I fix this?"
-    /// where Claude is waiting for user input but the prompt line itself is empty.
     static func isClaudeAskingQuestion(_ lines: [String]) -> Bool {
-        // Find the prompt line (❯ or bare >) and look at lines above it
-        let trimmed = lines.map { $0.trimmingCharacters(in: .whitespaces) }
-        guard let promptIdx = trimmed.lastIndex(where: { $0.hasPrefix("❯") || $0 == ">" || $0.hasSuffix("> ") }) else {
-            return false
-        }
-
-        // Look at the last few non-empty lines before the prompt
-        let above = trimmed[..<promptIdx].suffix(5).filter { !$0.isEmpty }
-        guard let lastAbove = above.last else { return false }
-
-        // If the last meaningful line before the prompt ends with "?", Claude is asking
-        return lastAbove.hasSuffix("?")
+        ScreenDetection.isClaudeAskingQuestion(lines)
     }
 
-    // MARK: - Codex prompt construction (strategy layer)
+    // MARK: - Codex integration (thin wrappers — logic lives in CodexIntegration.swift)
 
     private func callCodex(screenText: String, cwd: String, claudeLooping: Bool = false, repeatCount: Int = 0) -> CodexResult {
-        PairLog.info(">>> callCodex entered (cwd=\(cwd), screen=\(screenText.count) chars)")
-        let lastLines = screenText.split(separator: "\n").suffix(40).joined(separator: "\n")
-        let isSelection = Self.isSelectionPrompt(screenText)
-        let diffSummary = Self.gitDiffSummary(cwd: cwd)
-        let diffDetail = Self.gitDiffDetail(cwd: cwd)
-        let ledger = CodexLedger(projectDir: cwd)
-
-        let projectContext = ledger.readContext()
-        let recentHistory = ledger.recentHistoryWithOutcomes()
-        let strategy = ledger.readStrategy()
-
-        var contextBlock = ""
-        if let strat = strategy { contextBlock += "\n--- PROJECT STRATEGY ---\n\(String(strat.suffix(500)))\n" }
-        if let ctx = projectContext { contextBlock += "\n--- PROJECT CONTEXT ---\n\(String(ctx.suffix(800)))\n" }
-        if let history = recentHistory {
-            contextBlock += "\n--- YOUR RECENT DECISIONS (with outcomes) ---\n\(history)\n"
-            contextBlock += "Use this history to avoid repeating interventions that regressed or were neutral.\nDouble down on patterns that led to improvement.\n"
-        }
-
-        let isPrompt = !isSelection && Self.isInteractivePrompt(screenText)
-        let prompt: String
-
-        if isSelection {
-            prompt = """
-            You are acting as the human operator for Claude Code. Claude is showing \
-            an interactive selection prompt. Here is the terminal output:
-
-            \(lastLines)
-
-            This is a selection prompt where options are chosen by number. \
-            Pick the most permissive/thorough option. Usually: \
-            - For permission prompts, choose "Yes, allow all" (usually option 2). \
-            - For file creation/edit prompts, choose "Yes" (usually option 1). \
-            - For trust prompts, choose the most permissive option. \
-            Reply with ONLY the option number (e.g., "2"). Nothing else.
-            """
-        } else if isPrompt {
-            prompt = """
-            You are acting as the human operator for Claude Code. Claude is asking \
-            for your input or confirmation. Here is the terminal output:
-
-            \(lastLines)
-            \(contextBlock)
-            You ARE the user. Respond exactly as a knowledgeable developer would: \
-            - For Y/n or yes/no prompts: reply "y" or "yes" to proceed (or "n" if the action looks wrong). \
-            - For "Press Enter to continue": reply with just an empty line. \
-            - For questions about what to do: answer directly and concisely. \
-            - For trust/permission prompts: grant permission (the user trusts their tools). \
-            - For "Are you sure?" / "Proceed?": confirm with "y" or "yes". \
-            - For any other question: use your best judgment as the developer would. \
-            Only output the exact text to type. No explanations. No quotes.
-            """
-        } else {
-            var loopWarning = ""
-            if claudeLooping {
-                loopWarning += "\n⚠️ POSSIBLE LOOP: Claude's screen looks similar across recent cycles. If stuck, tell Claude to STOP and try something fundamentally different. Suggest a concrete alternative.\n"
-            }
-            if repeatCount >= 2 {
-                loopWarning += "\nNOTE: Your last \(repeatCount + 1) responses were identical. Check if the situation is actually progressing.\n"
-            }
-            let diffBlock = (diffDetail.map { !$0.isEmpty } ?? false) ? "\n--- GIT DIFF ---\n\(diffDetail!)\n" : ""
-
-            // Build commit nudge when there's significant uncommitted work
-            var commitBlock = ""
-            if let uncommitted = ledger.hasUncommittedWork(), uncommitted.files >= 3 {
-                commitBlock = """
-
-                --- UNCOMMITTED WORK ---
-                \(uncommitted.description) (\(uncommitted.files) files total)
-                When Claude reaches a good checkpoint (feature works, tests pass, or logical unit complete), \
-                tell it to commit its changes: "Good progress. Commit what you have so far with a descriptive \
-                message, making sure all new and modified files are staged." \
-                This keeps the git history clean and makes it easy to roll back if needed.
-
-                """
-            } else if let lastCommit = ledger.lastCommitSummary() {
-                commitBlock = "\n--- LAST COMMIT ---\n\(lastCommit)\n"
-            }
-
-            prompt = """
-            You are acting as the human operator for Claude Code. Claude has paused. \
-            Here is the terminal output:
-
-            \(lastLines)
-            \(contextBlock)\(diffBlock)\(commitBlock)\(loopWarning)
-            If Claude asked a question, answer it directly. Pick the most thorough option. \
-            If Claude finished work, reply with just: APPROVE \
-            Only output the text to type into Claude. \
-            IMPORTANT: If Claude has made meaningful changes (new files, significant edits) \
-            but hasn't committed yet, tell it to commit before continuing. Say something like: \
-            "Commit your changes so far before moving on. Stage all relevant files including any new ones." \
-            This ensures progress is saved incrementally. \
-            If you notice a pattern worth remembering, add a note prefixed with "LEARN:" at the end.
-            """
-        }
-
-        guard let codexPath = findCodex() else {
-            PairLog.error("Codex not found")
-            return CodexResult(response: nil, prompt: prompt, diffSummary: diffSummary)
-        }
-
-        // codex is a Node.js script (#!/usr/bin/env node) — Swift's Process can't
-        // exec .js files directly. Run through node explicitly.
-        let nodePath = findNode()
-        let resolvedCodex = resolveSymlink(codexPath)
-
-        let process = Process()
-        let stdout = Pipe()
-        let stderr = Pipe()
-        if let node = nodePath {
-            process.executableURL = URL(fileURLWithPath: node)
-            process.arguments = [resolvedCodex, "exec", "--json", "-s", "read-only", prompt]
-            PairLog.info("Codex: node \(resolvedCodex) [prompt \(prompt.count) chars]")
-        } else {
-            PairLog.error("Node.js not found — cannot run Codex")
-            return CodexResult(response: nil, prompt: prompt, diffSummary: diffSummary)
-        }
-        process.currentDirectoryURL = URL(fileURLWithPath: cwd)
-        process.standardOutput = stdout
-        process.standardError = stderr
-        var env = ProcessInfo.processInfo.environment
-        let nodeDir = (nodePath! as NSString).deletingLastPathComponent
-        env["PATH"] = "\(nodeDir):\(env["PATH"] ?? "/usr/bin")"
-        process.environment = env
-
-        do {
-            PairLog.info("Codex spawning: \(codexPath) exec --json -s read-only [prompt \(prompt.count) chars]")
-            try process.run()
-            PairLog.info("Codex PID \(process.processIdentifier) started")
-            // Read pipes on background threads BEFORE waitUntilExit to avoid pipe deadlock.
-            // If the process fills the pipe buffer (~64KB), it blocks waiting for reads,
-            // while waitUntilExit blocks waiting for the process — classic deadlock.
-            var rawData = Data()
-            var errData = Data()
-            let readGroup = DispatchGroup()
-            readGroup.enter()
-            DispatchQueue.global().async {
-                rawData = stdout.fileHandleForReading.readDataToEndOfFile()
-                readGroup.leave()
-            }
-            readGroup.enter()
-            DispatchQueue.global().async {
-                errData = stderr.fileHandleForReading.readDataToEndOfFile()
-                readGroup.leave()
-            }
-            let timeoutItem = DispatchWorkItem {
-                if process.isRunning {
-                    PairLog.error("Codex timed out after \(Int(self.codexTimeoutSec))s - killing")
-                    process.terminate()
-                    DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
-                        if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-                    }
-                }
-            }
-            DispatchQueue.global().asyncAfter(deadline: .now() + codexTimeoutSec, execute: timeoutItem)
-            process.waitUntilExit()
-            timeoutItem.cancel()
-            let readResult = readGroup.wait(timeout: .now() + codexTimeoutSec + 5)
-            if readResult == .timedOut {
-                PairLog.error("Codex pipe read timed out — possible deadlock avoided")
-            }
-            let raw = String(data: rawData, encoding: .utf8) ?? ""
-            let errOut = String(data: errData, encoding: .utf8) ?? ""
-            if !errOut.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { PairLog.error("Codex stderr: \(errOut.prefix(500))") }
-            if process.terminationStatus != 0 { PairLog.error("Codex exited with code \(process.terminationStatus), stdout=\(raw.count) bytes") }
-
-            var text = ""
-            var deltaText = ""
-            for line in raw.split(separator: "\n") {
-                guard let d = line.data(using: .utf8),
-                      let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
-                      let eventType = j["type"] as? String else { continue }
-                if eventType == "item.completed", let item = j["item"] as? [String: Any], let t = item["text"] as? String { text = t }
-                else if eventType == "item.delta", let delta = j["delta"] as? [String: Any], let t = delta["text"] as? String { deltaText += t }
-            }
-            if text.isEmpty && !deltaText.isEmpty { text = deltaText }
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return CodexResult(response: trimmed.isEmpty ? nil : trimmed, prompt: prompt, diffSummary: diffSummary)
-        } catch {
-            PairLog.error("Codex failed: \(error)")
-            return CodexResult(response: nil, prompt: prompt, diffSummary: diffSummary)
-        }
+        CodexIntegration.callCodex(screenText: screenText, cwd: cwd, claudeLooping: claudeLooping, repeatCount: repeatCount, codexTimeoutSec: codexTimeoutSec)
     }
 
     private static func extractLearnings(from response: String, ledger: CodexLedger) {
-        for line in response.split(separator: "\n") {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.uppercased().hasPrefix("LEARN:") {
-                let learning = String(trimmed.dropFirst(6)).trimmingCharacters(in: .whitespaces)
-                if !learning.isEmpty { PairLog.info("Codex learning: \(learning)"); ledger.appendLearning(learning) }
-            }
-        }
+        CodexIntegration.extractLearnings(from: response, ledger: ledger)
     }
 
-    private static func stripLearnings(_ response: String) -> String {
-        response.split(separator: "\n")
-            .filter { !$0.trimmingCharacters(in: .whitespaces).uppercased().hasPrefix("LEARN:") }
-            .joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    static func stripLearnings(_ response: String) -> String {  // internal for FeedbackHandler extension
+        CodexIntegration.stripLearnings(response)
     }
 
     private static func gitDiffSummary(cwd: String) -> String? {
-        CodexLedger.runGit(["diff", "--stat", "--no-color"], cwd: cwd)
+        CodexIntegration.gitDiffSummary(cwd: cwd)
     }
 
     private static func gitDiffDetail(cwd: String) -> String? {
-        guard let full = CodexLedger.runGit(["diff", "--no-color", "-U2"], cwd: cwd) else { return nil }
-        return full.count > 2000 ? String(full.prefix(2000)) + "\n... (diff truncated)" : full
+        CodexIntegration.gitDiffDetail(cwd: cwd)
     }
 
     private func findCodex() -> String? {
-        let paths = ["/usr/local/bin/codex", "/opt/homebrew/bin/codex"]
-        let nvmDir = FileManager.default.homeDirectoryForCurrentUser.path + "/.nvm/versions/node"
-        var all = paths
-        if let vs = try? FileManager.default.contentsOfDirectory(atPath: nvmDir) {
-            for v in vs.sorted().reversed() { all.append("\(nvmDir)/\(v)/bin/codex") }
-        }
-        return all.first(where: { FileManager.default.fileExists(atPath: $0) })
+        CodexIntegration.findCodex()
     }
 
-    /// Find node binary — needed to run codex (which is a .js script).
     private func findNode() -> String? {
-        let paths = ["/usr/local/bin/node", "/opt/homebrew/bin/node"]
-        let nvmDir = FileManager.default.homeDirectoryForCurrentUser.path + "/.nvm/versions/node"
-        var all = paths
-        if let vs = try? FileManager.default.contentsOfDirectory(atPath: nvmDir) {
-            for v in vs.sorted().reversed() { all.append("\(nvmDir)/\(v)/bin/node") }
-        }
-        return all.first(where: { FileManager.default.fileExists(atPath: $0) })
+        CodexIntegration.findNode()
     }
 
-    /// Resolve symlinks to get the actual file path (codex → codex.js).
     private func resolveSymlink(_ path: String) -> String {
-        let url = URL(fileURLWithPath: path)
-        return url.resolvingSymlinksInPath().path
+        CodexIntegration.resolveSymlink(path)
     }
 }

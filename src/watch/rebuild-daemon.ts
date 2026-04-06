@@ -82,10 +82,20 @@ function findSwiftFiles(dir: string): string[] {
 	return files;
 }
 
-/** Find the PID of the running PairApp process. */
+/** Find the PID of the running PairApp process.
+ *  Uses exact binary paths to avoid false positives from editors, grep, etc. */
 function findPairAppPid(): number | null {
+	// Try the debug binary first, then the installed app bundle
+	for (const pattern of [BINARY, APP_BUNDLE]) {
+		try {
+			const output = execFileSync("pgrep", ["-f", pattern], { encoding: "utf-8" }).trim();
+			const pids = output.split("\n").map(Number).filter(Boolean);
+			if (pids.length > 0) return pids[0];
+		} catch { /* no match */ }
+	}
+	// Fallback: exact process name match (no path substring issues)
 	try {
-		const output = execFileSync("pgrep", ["-f", "PairApp"], { encoding: "utf-8" }).trim();
+		const output = execFileSync("pgrep", ["-x", "PairApp"], { encoding: "utf-8" }).trim();
 		const pids = output.split("\n").map(Number).filter(Boolean);
 		return pids[0] ?? null;
 	} catch {
@@ -135,12 +145,14 @@ async function ensureProjectSession(): Promise<string | null> {
 		// Create a new session via IPC
 		const net = await import("node:net");
 		const socketPath = path.join(process.env.HOME ?? "", ".claude-codex-pair", "pair-terminal.sock");
+		const tokenPath = path.join(process.env.HOME ?? "", ".claude-codex-pair", "auth-token");
+		const token = fs.existsSync(tokenPath) ? fs.readFileSync(tokenPath, "utf-8").trim() : "";
 		const sessionId = `watch-${Date.now().toString(36)}`;
 
 		await new Promise<void>((resolve, reject) => {
 			const client = net.createConnection(socketPath);
 			client.on("connect", () => {
-				client.write(JSON.stringify({ action: "create_session", surface: sessionId, text: ROOT }));
+				client.write(JSON.stringify({ action: "create_session", surface: sessionId, text: ROOT, token }));
 			});
 			client.on("data", (d) => {
 				const resp = JSON.parse(d.toString());
@@ -222,6 +234,15 @@ async function hotRestart(): Promise<boolean> {
 			fs.mkdirSync(path.dirname(crashLogPath), { recursive: true });
 			const entry = `\n--- Crash #${state.crashCount} at ${new Date().toISOString()} ---\nexit=${code} signal=${signal}\n${stderrBuf}\n`;
 			fs.appendFileSync(crashLogPath, entry);
+			// Rotate if crash log exceeds 500KB — keep only last 100 lines
+			try {
+				const stat = fs.statSync(crashLogPath);
+				if (stat.size > 500 * 1024) {
+					const content = fs.readFileSync(crashLogPath, "utf-8");
+					const lines = content.split("\n");
+					fs.writeFileSync(crashLogPath, lines.slice(-100).join("\n"));
+				}
+			} catch { /* non-fatal */ }
 		} catch { /* non-fatal */ }
 		state.appProcess = null;
 	});
@@ -339,7 +360,7 @@ function watchDirectories() {
 }
 
 /** Entry point. */
-export async function startWatchDaemon() {
+export async function startWatchDaemon(): Promise<void> {
 	log("PairApp auto-rebuild daemon starting");
 	log(`Sources: ${SOURCES_DIR}`);
 	log(`Binary:  ${BINARY}`);

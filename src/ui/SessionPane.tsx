@@ -57,7 +57,7 @@ function truncLine(line: string, max: number): string {
 	return line.length > max ? line.slice(0, max - 3) + "..." : line;
 }
 
-export function SessionPane({ sessionId, project, pid, selected, expanded }: Props) {
+export function SessionPane({ sessionId, project, pid, selected, expanded }: Props): JSX.Element {
 	const [state, setState] = useState<SessionState | null>(null);
 	const [entries, setEntries] = useState<InteractionEntry[]>([]);
 	const [alive, setAlive] = useState(true);

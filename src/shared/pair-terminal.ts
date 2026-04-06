@@ -4,6 +4,12 @@ import path from "node:path";
 import fs from "node:fs";
 
 const SOCKET_PATH = path.join(os.homedir(), ".claude-codex-pair", "pair-terminal.sock");
+const TOKEN_PATH = path.join(os.homedir(), ".claude-codex-pair", "auth-token");
+
+function readAuthToken(): string {
+	try { return fs.readFileSync(TOKEN_PATH, "utf-8").trim(); }
+	catch { return ""; }
+}
 
 interface IPCResponse {
 	ok: boolean;
@@ -118,7 +124,7 @@ function sendCommand(command: Record<string, unknown>, timeout = 5000): Promise<
 		}, timeout);
 
 		client.on("connect", () => {
-			client.write(JSON.stringify(command));
+			client.write(JSON.stringify({ ...command, token: readAuthToken() }));
 			// Don't end()  - keep connection open for response
 		});
 

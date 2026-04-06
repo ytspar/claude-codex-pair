@@ -133,7 +133,7 @@ class PairSession: Identifiable, ObservableObject {
         lastMachineInputTime = Date()
         // Sanitize: strip control characters (except newline), truncate length
         var sanitized = String(text.prefix(Self.maxInjectionLength))
-        sanitized = sanitized.unicodeScalars.filter { $0 == "\n" || $0 == "\r" || ($0.value >= 0x20 && $0.value < 0x7F) || $0.value > 0x7F }.map(String.init).joined()
+        sanitized = sanitized.unicodeScalars.filter { $0 == "\n" || $0 == "\r" || ($0.value >= 0x20 && $0.value < 0x7F) || ($0.value > 0x9F) }.map(String.init).joined()
         // Replace \n with \r for terminal submission (Enter = carriage return)
         let termText = sanitized.replacingOccurrences(of: "\n", with: "\r")
         terminalView?.sendPreservingScroll(txt: termText)

@@ -219,11 +219,14 @@ program
 
 		// Create session via IPC
 		const net = await import("node:net");
+		const fsp = await import("node:fs");
 		const socketPath = path.join(process.env.HOME ?? "", ".claude-codex-pair", "pair-terminal.sock");
+		const tokenPath = path.join(process.env.HOME ?? "", ".claude-codex-pair", "auth-token");
+		const token = fsp.existsSync(tokenPath) ? fsp.readFileSync(tokenPath, "utf-8").trim() : "";
 		await new Promise<void>((resolve, reject) => {
 			const client = net.createConnection(socketPath);
 			client.on("connect", () => {
-				client.write(JSON.stringify({ action: "create_session", surface: id, text: cwd }));
+				client.write(JSON.stringify({ action: "create_session", surface: id, text: cwd, token }));
 			});
 			client.on("data", (d) => {
 				const resp = JSON.parse(d.toString());

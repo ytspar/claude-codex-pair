@@ -12,9 +12,15 @@ import net from "node:net";
 import fs from "node:fs";
 
 const SOCKET = path.join(os.homedir(), ".claude-codex-pair", "pair-terminal.sock");
+const TOKEN_PATH = path.join(os.homedir(), ".claude-codex-pair", "auth-token");
 const PROJECT = process.cwd();
 const SESSION_ID = `test-${Date.now().toString(36)}`;
 const LOG_FILE = path.join(os.homedir(), ".claude-codex-pair", "pairapp.log");
+
+function readAuthToken(): string {
+	try { return fs.readFileSync(TOKEN_PATH, "utf-8").trim(); }
+	catch { return ""; }
+}
 
 interface TestResult {
 	name: string;
@@ -45,7 +51,7 @@ async function ipc(command: Record<string, unknown>): Promise<{ ok: boolean; res
 		const client = net.createConnection(SOCKET);
 		let data = "";
 		const timer = setTimeout(() => { client.destroy(); reject(new Error("IPC timeout")); }, 10000);
-		client.on("connect", () => client.write(JSON.stringify(command)));
+		client.on("connect", () => client.write(JSON.stringify({ ...command, token: readAuthToken() })));
 		client.on("data", (d) => { data += d.toString(); });
 		client.on("end", () => { clearTimeout(timer); try { resolve(JSON.parse(data)); } catch { reject(new Error(`Bad response: ${data}`)); } });
 		client.on("error", (e) => { clearTimeout(timer); reject(e); });
@@ -214,6 +220,7 @@ async function testInjectAndRespond() {
 	const testPrompt = "Run swift test in app/PairApp and report the results. If any tests fail, explain why.";
 
 	try {
+		const baseline = simpleHash(await readScreen());
 		const resp = await ipc({ action: "send_input", surface: SESSION_ID, text: testPrompt + "\r" });
 		if (!resp.ok) {
 			fail("Inject prompt", `IPC error: ${resp.error}`, Date.now() - start);
@@ -222,28 +229,31 @@ async function testInjectAndRespond() {
 		log(`  Injected: "${testPrompt}"`);
 		log("  Waiting for Claude to start working...");
 
-		// Wait for Claude to start (screen changes from just prompt)
+		// Wait for screen to change from baseline (Claude picked up the prompt)
+		await waitFor("Screen changes after injection", (s) => simpleHash(s) !== baseline, 30000);
+
 		const { elapsed: startElapsed } = await waitFor(
 			"Claude starts working",
-			(s) => s.includes("Bash") || s.includes("swift test") || s.includes("thinking") || s.includes("Sprouting") || s.includes("Read"),
+			(s) => s.includes("Bash") || s.includes("swift test") || s.includes("thinking") || s.includes("Sprouting"),
 			30000,
 		);
 		pass("Claude starts", `Working after ${(startElapsed / 1000).toFixed(1)}s`, Date.now() - start);
 
-		// Wait for Claude to finish (return to prompt)
+		// Wait for Claude to show "swift test" output, then return to prompt
 		log("  Waiting for Claude to finish...");
+		await waitFor("Swift test output appears", (s) => {
+			return s.includes("Executed") || s.includes("Build complete") || s.includes("passed");
+		}, 180000);
+
 		const { screen, elapsed: finishElapsed } = await waitFor(
 			"Claude returns to ❯ prompt",
 			(s) => {
-				const lines = s.split("\n");
-				// Look for ❯ in the last 6 lines (after work output)
-				const tail = lines.slice(-6);
-				return tail.some(l => l.trim().startsWith("❯") || l.trim() === "❯");
+				const lines = s.split("\n").slice(-6);
+				return lines.some(l => l.trim().startsWith("❯") || l.trim() === "❯");
 			},
-			180000, // 3 min — tests take a while
+			60000,
 		);
 
-		// Check if tests were mentioned in output
 		const hasTestOutput = screen.includes("Executed") || screen.includes("tests") || screen.includes("passed") || screen.includes("failed");
 		pass("Claude completes", `Finished after ${(finishElapsed / 1000).toFixed(1)}s, test output: ${hasTestOutput}`, Date.now() - start);
 
@@ -260,7 +270,7 @@ async function testCodexReview() {
 		// Wait for Codex to trigger a review (should happen within ~10s of Claude finishing)
 		log("  Waiting for Codex review...");
 
-		await sleep(15000); // Give monitor time to detect stability and call Codex
+		await sleep(30000); // Give monitor time to detect stability and call Codex
 
 		const codexLogs = recentLogs("Codex (", logStart);
 		const reviewLogs = recentLogs("triggering review", logStart);
@@ -309,7 +319,7 @@ async function testCodexAnswersQuestion() {
 		// Now wait for Codex to answer (screen should change after the question)
 		log("  Waiting for Codex to answer...");
 		const logBefore = Date.now();
-		await sleep(20000); // Give Codex time to review and respond
+		await sleep(40000); // Give Codex time to detect stability, review, and respond
 
 		const codexLogs = recentLogs("Codex (", logBefore);
 		const injectionLogs = recentLogs("injection delivered", logBefore);
@@ -319,7 +329,7 @@ async function testCodexAnswersQuestion() {
 		} else if (codexLogs.length > 0) {
 			pass("Codex answers question", `Codex responded (${codexLogs.length} reviews) but may not have injected`, Date.now() - start);
 		} else {
-			fail("Codex answers question", `No Codex response after 20s`, Date.now() - start);
+			fail("Codex answers question", `No Codex response after 40s`, Date.now() - start);
 		}
 	} catch (e) {
 		fail("Codex answers question", `${e}`, Date.now() - start);
@@ -443,7 +453,7 @@ async function testClaudeAskingQuestion() {
 				// Look for ? in lines above the prompt, specifically about our refactor prompt
 				const promptIdx = tail.findIndex(l => l.trim().startsWith("❯") || l.trim() === "❯");
 				const above = tail.slice(0, promptIdx);
-				return above.some(l => l.trim().endsWith("?") && (l.includes("agree") || l.includes("refactor") || l.includes("start") || l.includes("think") || l.includes("prefer")));
+				return above.some(l => l.trim().endsWith("?") && !l.includes("refactor one of"));
 			},
 			120000,
 		);
@@ -635,7 +645,7 @@ async function cleanupOldTestSessions() {
 	} catch { /* non-fatal */ }
 }
 
-export async function runTestLoop() {
+export async function runTestLoop(): Promise<void> {
 	log("PairApp automated test loop");
 	log(`Project: ${PROJECT}`);
 	log(`Session: ${SESSION_ID}`);
