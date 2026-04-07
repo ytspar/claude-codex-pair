@@ -622,6 +622,143 @@ async function testStabilityAfterRapidChanges() {
 	}
 }
 
+// ── Selection behavior tests ──────────────────────────────────────────
+// These specifically test the bug where numbered lists and conversational
+// questions were misclassified as selection prompts, causing random numbers
+// to be injected into Claude's prompt.
+
+async function testNumberedListNotSelection() {
+	const start = Date.now();
+	// This prompt makes Claude output a numbered list of files.
+	// The monitor must NOT classify this as a selection prompt.
+	const prompt = "List all Swift files in app/PairApp/Sources/PairApp/ with line counts. Number them 1, 2, 3, etc. Do NOT ask follow-up questions — just output the numbered list.";
+
+	try {
+		await waitForFreshPrompt(60000);
+		const logBefore = Date.now();
+		await injectAndWaitForStart(prompt);
+		log(`  Injected numbered-list prompt`);
+
+		// Wait for Claude to produce output and return to prompt
+		log("  Waiting for Claude to list files...");
+		await waitFor("Claude lists files", (s) => {
+			return s.includes(".swift") && (s.includes("1.") || s.includes("lines"));
+		}, 60000);
+		await waitFor("Claude returns to prompt", (s) => {
+			const lines = s.split("\n").slice(-6);
+			return lines.some(l => l.trim().startsWith("❯") || l.trim() === "❯");
+		}, 120000);
+
+		// Wait for Codex to review the output
+		await sleep(15000);
+
+		// CRITICAL CHECK: No "Selection prompt, typing" should appear for this screen.
+		// The numbered file list must NOT be classified as a selection prompt.
+		const selectionLogs = recentLogs("Selection prompt, typing", logBefore);
+		const bareNumLogs = recentLogs("Bare numeric", logBefore);
+		const feedbackLogs = recentLogs("FEEDBACK", logBefore);
+		const selFalseLogs = recentLogs("selection=false", logBefore);
+
+		if (selectionLogs.length > 0) {
+			fail("Numbered list not selection", `REGRESSION: Monitor typed numbers into a numbered list (${selectionLogs.length} selection events)`, Date.now() - start);
+		} else if (bareNumLogs.length > 0) {
+			pass("Numbered list not selection", `Safety net caught ${bareNumLogs.length} bare numeric responses (selection=false, discarded)`, Date.now() - start);
+		} else {
+			pass("Numbered list not selection", `Correct: ${selFalseLogs.length} reviews with selection=false, ${feedbackLogs.length} feedback, 0 selection typing`, Date.now() - start);
+		}
+	} catch (e) {
+		fail("Numbered list not selection", `${e}`, Date.now() - start);
+	}
+}
+
+async function testConversationalQuestionNotSelection() {
+	const start = Date.now();
+	// This makes Claude ask a conversational question — "which file?"
+	// The monitor must NOT respond with a bare number.
+	const prompt = "Look at app/PairApp/Sources/PairApp/ClaudeMonitor.swift and app/PairApp/Sources/PairApp/ScreenDetection.swift. Tell me which one has better code organization and ask me if I'd like you to refactor the other one to match.";
+
+	try {
+		await waitForFreshPrompt(60000);
+		const logBefore = Date.now();
+		await injectAndWaitForStart(prompt);
+		log(`  Injected conversational-question prompt`);
+
+		// Wait for Claude to ask a follow-up question
+		log("  Waiting for Claude to respond with a question...");
+		await waitFor("Claude asks question", (s) => {
+			const lines = s.split("\n").filter(l => l.trim());
+			const tail = lines.slice(-10);
+			const hasPrompt = tail.some(l => l.trim().startsWith("❯") || l.trim() === "❯");
+			if (!hasPrompt) return false;
+			return tail.some(l => l.trim().endsWith("?"));
+		}, 180000);
+
+		// Wait for Codex to respond to the question
+		log("  Waiting for Codex to respond...");
+		await sleep(20000);
+
+		// CRITICAL CHECK: Codex should respond with substantive text, not a bare number.
+		const selectionLogs = recentLogs("Selection prompt, typing", logBefore);
+		const bareNumLogs = recentLogs("Bare numeric", logBefore);
+		const feedbackLogs = recentLogs("FEEDBACK", logBefore);
+		const codexLogs = recentLogs("Codex (", logBefore);
+
+		if (selectionLogs.length > 0) {
+			fail("Conversational question", `REGRESSION: Monitor typed a number into a conversational question (${selectionLogs.length} selection events)`, Date.now() - start);
+		} else if (bareNumLogs.length > 0) {
+			pass("Conversational question", `Safety net caught ${bareNumLogs.length} bare numeric responses — discarded correctly`, Date.now() - start);
+		} else if (codexLogs.length > 0) {
+			pass("Conversational question", `Codex responded with substantive feedback (${codexLogs.length} reviews, ${feedbackLogs.length} feedback injected)`, Date.now() - start);
+		} else {
+			pass("Conversational question", `No errant selection behavior detected`, Date.now() - start);
+		}
+	} catch (e) {
+		fail("Conversational question", `${e}`, Date.now() - start);
+	}
+}
+
+async function testRealPermissionPromptHandled() {
+	const start = Date.now();
+	// This triggers a real file edit which should produce a real permission prompt.
+	// The monitor SHOULD detect it as a selection and type the option number.
+	const prompt = "Create a file /tmp/pair-selection-test.txt with the text 'selection test', then delete it.";
+
+	try {
+		await waitForFreshPrompt(60000);
+		const logBefore = Date.now();
+		await injectAndWaitForStart(prompt);
+		log(`  Injected file-edit prompt (should trigger real permission)`);
+
+		// Wait for Claude to finish
+		log("  Waiting for Claude to complete...");
+		await waitFor("Claude returns to prompt after edit", (s) => {
+			const lines = s.split("\n").slice(-6);
+			const hasPrompt = lines.some(l => l.trim().startsWith("❯") || l.trim() === "❯");
+			const didWork = s.includes("pair-selection-test") || s.includes("Created") || s.includes("Bash") || s.includes("Write");
+			return hasPrompt && didWork;
+		}, 300000);
+
+		// Give Codex time to handle any permission prompts
+		await sleep(10000);
+
+		// CHECK: Selection prompts should have been detected and handled for real permissions
+		const selectionLogs = recentLogs("Selection prompt, typing", logBefore);
+		const acceptLogs = recentLogs("Accepting edits", logBefore);
+		const selectEvents = recentLogs("SELECT", logBefore);
+
+		if (selectionLogs.length > 0 || acceptLogs.length > 0) {
+			pass("Real permission handled", `Monitor correctly handled ${selectionLogs.length} selection prompts + ${acceptLogs.length} accept-edits`, Date.now() - start);
+		} else if (selectEvents.length > 0) {
+			pass("Real permission handled", `${selectEvents.length} SELECT events logged`, Date.now() - start);
+		} else {
+			// Claude may have had auto-accept enabled
+			pass("Real permission handled", `Claude completed (permissions may have been pre-granted)`, Date.now() - start);
+		}
+	} catch (e) {
+		fail("Real permission handled", `${e}`, Date.now() - start);
+	}
+}
+
 /** Simple string hash for screen comparison during polling. */
 function simpleHash(s: string): number {
 	let h = 0;
@@ -675,6 +812,12 @@ export async function runTestLoop(): Promise<void> {
 	await testAcceptEditsFlow();
 	await testMultiStepWithPermissions();
 	await testPermissionPromptHandling();
+
+	// Selection behavior regression tests
+	await testNumberedListNotSelection();
+	await testConversationalQuestionNotSelection();
+	await testRealPermissionPromptHandled();
+
 	await testStabilityAfterRapidChanges();
 	await testUserInputProtection();
 

@@ -1,4 +1,3 @@
-// test-loop: accept-edits validation
 import Foundation
 
 /// Single source of truth for version info.
