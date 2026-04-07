@@ -55,7 +55,11 @@ class SessionMonitorState {
     private var _recentScreenSnapshots: [String] = []
     private var _similarScreenCount = 0
     private var _sessionRemoved = false
+    private var _paused = false
     private let maxSnapshots = 5
+    /// Screen hash when we last reviewed a blocking/permission prompt.
+    /// Prevents re-triggering reviews on the same unchanged permission dialog.
+    private var _lastBlockingReviewHash: Int = 0
 
     // Autoresearch-inspired state
     private var _consecutiveUnhelpful = 0
@@ -197,9 +201,17 @@ class SessionMonitorState {
         get { lock.withLock { _similarScreenCount } }
         set { lock.withLock { _similarScreenCount = newValue } }
     }
+    var lastBlockingReviewHash: Int {
+        get { lock.withLock { _lastBlockingReviewHash } }
+        set { lock.withLock { _lastBlockingReviewHash = newValue } }
+    }
     var sessionRemoved: Bool {
         get { lock.withLock { _sessionRemoved } }
         set { lock.withLock { _sessionRemoved = newValue } }
+    }
+    var paused: Bool {
+        get { lock.withLock { _paused } }
+        set { lock.withLock { _paused = newValue } }
     }
     var consecutiveUnhelpful: Int {
         get { lock.withLock { _consecutiveUnhelpful } }
@@ -433,7 +445,7 @@ class ClaudeMonitor: ObservableObject {
     /// Returns true if something was injected (callers should skip further strategy).
     @discardableResult
     private func drainInjectionQueue(session: PairSession, st: SessionMonitorState, screenText: String) -> Bool {
-        guard !st.sessionRemoved else { return false }
+        guard !st.sessionRemoved, !st.paused else { return false }
         let atPrompt = isAtClaudePrompt(screenText) || isInterruptedPrompt(screenText)
         let promptEmpty = isPromptEmpty(screenText)
 
@@ -551,6 +563,7 @@ class ClaudeMonitor: ObservableObject {
 
     private func pollSession(_ session: PairSession) {
         let st = state(for: session.id)
+        guard !st.paused else { return }
         var screenText = ""
         DispatchQueue.main.sync { screenText = session.readScreen() }
 

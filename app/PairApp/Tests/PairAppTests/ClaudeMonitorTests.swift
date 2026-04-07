@@ -85,6 +85,43 @@ final class ClaudeMonitorTests: XCTestCase {
         XCTAssertFalse(ClaudeMonitor.isSelectionPrompt(screen))
     }
 
+    func testNumberedFileListNotDetectedAsSelection() {
+        // Claude listing files with numbers is NOT a selection prompt
+        let screen = """
+        Here are the Swift files:
+        1. ClaudeMonitor.swift
+        2. ScreenDetection.swift
+        3. CodexIntegration.swift
+        4. FeedbackHandler.swift
+        5. TaskQueue.swift
+
+        Which one would you like to examine?
+        ❯
+        """
+        XCTAssertFalse(ClaudeMonitor.isSelectionPrompt(screen))
+    }
+
+    func testNumberedPermissionPromptDetectedAsSelection() {
+        // Actual permission prompt with numbered options
+        let screen = """
+        Claude wants to edit foo.swift
+        1. Yes
+        2. Yes, allow all
+        3. No
+        """
+        XCTAssertTrue(ClaudeMonitor.isSelectionPrompt(screen))
+    }
+
+    func testPromptWithTextNotDetectedAsSelection() {
+        // User typing at the ❯ prompt should NOT trigger selection detection
+        let screen = """
+        Claude Code v2.1.85
+        Done. Created hello.swift
+        ❯ some user text here
+        """
+        XCTAssertFalse(ClaudeMonitor.isSelectionPrompt(screen))
+    }
+
     func testScreenChangeDetected() {
         var hashes: [Int] = []
         var stableCount = 0

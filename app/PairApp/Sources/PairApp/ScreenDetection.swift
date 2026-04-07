@@ -79,17 +79,35 @@ enum ScreenDetection {
     static func isSelectionPrompt(_ screenText: String) -> Bool {
         if isAcceptEditsPrompt(screenText) { return false }
         let lines = screenText.split(separator: "\n").map(String.init)
-        let hasArrowMarker = lines.contains { line in
+        // Check for ❯/› selection markers — but require other indented option lines nearby.
+        // A bare ❯ with text is the Claude Code input prompt, NOT a selection menu.
+        // Selection menus look like:  ❯ Yes\n  Yes, allow all\n  No
+        var hasArrowMarker = false
+        for (i, line) in lines.enumerated() {
             let t = line.trimmingCharacters(in: .whitespaces)
-            if let r = t.range(of: "❯") ?? t.range(of: "›") {
-                let after = t[r.upperBound...].trimmingCharacters(in: .whitespaces)
-                return !after.isEmpty && after.count > 1
+            guard let r = t.range(of: "❯") ?? t.range(of: "›") else { continue }
+            let after = t[r.upperBound...].trimmingCharacters(in: .whitespaces)
+            guard !after.isEmpty && after.count > 1 else { continue }
+            // Check if the next 1-3 lines have indented options (no ❯/› prefix)
+            let nextLines = lines.dropFirst(i + 1).prefix(3)
+            let hasIndentedOptions = nextLines.contains { nextLine in
+                let nt = nextLine.trimmingCharacters(in: .whitespaces)
+                return !nt.isEmpty && !nt.hasPrefix("❯") && !nt.hasPrefix("›") && !nt.hasPrefix("─")
             }
-            return false
+            if hasIndentedOptions { hasArrowMarker = true; break }
         }
-        let numberedLines = lines.filter { let t = $0.trimmingCharacters(in: .whitespaces); return t.hasPrefix("1.") || t.hasPrefix("2.") || t.hasPrefix("3.") }
-        let hasPermissionKeywords = lines.contains { let l = $0.lowercased(); return (l.contains("yes") && l.contains("allow")) || l.contains("do you want to") || l.contains("permission") }
-        return hasArrowMarker || numberedLines.count >= 2 || hasPermissionKeywords
+        // Check for numbered permission/selection options — NOT numbered file listings.
+        // Real selection prompts have options like "1. Yes", "2. No", "3. Yes, allow all".
+        // They contain permission/choice keywords in the numbered lines themselves.
+        let tail = lines.suffix(10)
+        let selectionKeywords = ["yes", "no", "allow", "deny", "accept", "reject", "skip", "cancel", "confirm", "trust"]
+        let numberedSelectionLines = tail.filter { line in
+            let t = line.trimmingCharacters(in: .whitespaces).lowercased()
+            guard t.hasPrefix("1.") || t.hasPrefix("2.") || t.hasPrefix("3.") else { return false }
+            return selectionKeywords.contains { t.contains($0) }
+        }
+        let hasPermissionKeywords = tail.contains { let l = $0.lowercased(); return (l.contains("yes") && l.contains("allow")) || l.contains("do you want to") || l.contains("permission") }
+        return hasArrowMarker || numberedSelectionLines.count >= 2 || hasPermissionKeywords
     }
 
     static func isInteractivePrompt(_ screenText: String) -> Bool {

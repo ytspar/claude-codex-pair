@@ -8,6 +8,12 @@ extension ClaudeMonitor {
     func handleFeedback(response: String, screenText: String, session: PairSession, st: SessionMonitorState, isSelection: Bool, durationMs: Int?, screenSnippet: String, prompt: String, diffSummary: String?) {
         // Phase is already .feedback from caller's transition
 
+        // If monitor is paused (test harness), discard feedback silently
+        if st.paused {
+            PairLog.info("[\(session.id)] Monitor paused — discarding Codex feedback")
+            return
+        }
+
         // CARDINAL RULE: Re-read the screen RIGHT NOW. If the prompt is not empty,
         // someone (user or prior injection) has text there. Do not touch it.
         let currentScreen = session.readScreen()
@@ -73,10 +79,18 @@ extension ClaudeMonitor {
             st.hadInteraction = true
         } else {
             st.consecutiveSelects = 0
-            addTimeline(st, "FEEDBACK", response, source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
-            st.hadInteraction = true
-            let cleaned = Self.stripLearnings(response)
-            if !cleaned.isEmpty { st.enqueue(cleaned, source: .codexFeedback) }
+            // Guard against bare numeric responses being injected as text when there's no
+            // selection prompt — Codex sometimes responds with just a number to conversational
+            // questions, which confuses Claude ("Not sure what '2' refers to").
+            if isNumericResponse && !isSelection {
+                PairLog.info("[\(session.id)] Bare numeric response '\(trimmed)' without selection prompt — discarding")
+                addTimeline(st, "SKIPPED", "Bare number '\(trimmed)' discarded (no selection prompt)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response)
+            } else {
+                addTimeline(st, "FEEDBACK", response, source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
+                st.hadInteraction = true
+                let cleaned = Self.stripLearnings(response)
+                if !cleaned.isEmpty { st.enqueue(cleaned, source: .codexFeedback) }
+            }
         }
         // After feedback, wait for the screen to actually change before reviewing again.
         // The 1s cooldown was too aggressive — Codex would re-trigger on the same prompt.

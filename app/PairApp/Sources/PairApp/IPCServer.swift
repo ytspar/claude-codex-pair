@@ -204,6 +204,29 @@ class IPCServer {
             // Shell integration: log command execution
             return IPCResponse(ok: true)
 
+        case "pause_monitor":
+            // Pause monitor polling for a session (used by test harness between tests)
+            guard let surfaceId = request.surface else {
+                return IPCResponse(ok: false, error: "Missing surface")
+            }
+            let pst = ClaudeMonitor.shared.sessionStatesLock.withLock {
+                ClaudeMonitor.shared.sessionStates[surfaceId]
+            }
+            pst?.paused = true
+            pst?.clearInjectionQueue()
+            return IPCResponse(ok: true)
+
+        case "resume_monitor":
+            // Resume monitor polling for a session
+            guard let surfaceId = request.surface else {
+                return IPCResponse(ok: false, error: "Missing surface")
+            }
+            let rst = ClaudeMonitor.shared.sessionStatesLock.withLock {
+                ClaudeMonitor.shared.sessionStates[surfaceId]
+            }
+            rst?.paused = false
+            return IPCResponse(ok: true)
+
         case "clear_queue":
             // Clear the injection queue for a session (used by test harness)
             guard let surfaceId = request.surface else {

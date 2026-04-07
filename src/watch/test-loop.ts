@@ -110,18 +110,16 @@ async function waitForFreshPrompt(timeoutMs = 60000): Promise<string> {
 /** Inject a prompt and wait for Claude to start working.
  *  Clears the Codex injection queue and prompt text before injecting. */
 async function injectAndWaitForStart(prompt: string, timeoutMs = 60000): Promise<void> {
-	// Clear the Codex injection queue so it doesn't re-fill the prompt
-	await ipc({ action: "clear_queue", surface: SESSION_ID });
-	// Clear any leftover text and wait for prompt to stabilize
+	// Pause the monitor to prevent Codex from re-injecting into the prompt
+	await ipc({ action: "pause_monitor", surface: SESSION_ID });
 	await ipc({ action: "send_key", surface: SESSION_ID, text: "ctrl-u" });
-	await sleep(1000);
-	// Clear again in case Codex re-injected during the sleep
-	await ipc({ action: "clear_queue", surface: SESSION_ID });
-	await ipc({ action: "send_key", surface: SESSION_ID, text: "ctrl-u" });
-	await sleep(500);
+	await sleep(300);
 
 	const baseline = simpleHash(await readScreen());
 	await ipc({ action: "send_input", surface: SESSION_ID, text: prompt + "\r" });
+
+	// Resume the monitor after injection so Codex can review Claude's work
+	await ipc({ action: "resume_monitor", surface: SESSION_ID });
 
 	// Wait for screen to change from baseline
 	await waitFor("Claude starts working", (s) => simpleHash(s) !== baseline, timeoutMs);
@@ -384,10 +382,12 @@ async function testUserInputProtection() {
 		// Wait for a clean, stable prompt with no pending Codex injections
 		await waitForFreshPrompt(60000);
 
-		// Clear the Codex injection queue and any leftover prompt text
-		await ipc({ action: "clear_queue", surface: SESSION_ID });
+		// Pause the monitor so Codex doesn't inject during this test
+		await ipc({ action: "pause_monitor", surface: SESSION_ID });
+		// Wait for any in-flight Codex review to complete and be discarded
+		await sleep(5000);
 		await ipc({ action: "send_key", surface: SESSION_ID, text: "ctrl-u" });
-		await sleep(2000);
+		await sleep(1000);
 
 		// Simulate user typing (paste text WITHOUT submitting — no \r)
 		const userText = "THIS IS USER INPUT DO NOT SUBMIT";
@@ -419,8 +419,11 @@ async function testUserInputProtection() {
 		// Clean up: send Ctrl+U to clear the line, then Escape
 		await ipc({ action: "send_key", surface: SESSION_ID, text: "ctrl-u" });
 		await ipc({ action: "send_key", surface: SESSION_ID, text: "escape" });
+		// Resume monitor for any subsequent tests
+		await ipc({ action: "resume_monitor", surface: SESSION_ID });
 
 	} catch (e) {
+		await ipc({ action: "resume_monitor", surface: SESSION_ID }).catch(() => {});
 		fail("User input protection", `${e}`, Date.now() - start);
 	}
 }
