@@ -172,3 +172,9 @@ after a green checkpoint, one commit plus runtime/repro verification is the corr
 
 ## 2026-04-03 19:13
 After a green checkpoint with meaningful uncommitted work, the effective next sequence is one commit followed immediately by runtime/repro verification; repeated context-note edits, repo inspection, or repeated commit reminders are loops.
+
+## 2026-04-07 11:50
+After a green checkpoint with meaningful uncommitted work, the next step is one commit followed immediately by runtime/repro verification; repeated context-note edits, repo inspection, or repeated commit nudges are loops.
+
+## 2026-04-07 12:19
+After a green checkpoint with meaningful uncommitted work, the next step is one commit followed immediately by runtime/repro verification; repeated context-note edits, repo inspection, or repeated commit nudges are loops.

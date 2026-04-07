@@ -83,13 +83,19 @@ enum ScreenDetection {
         // A bare ❯ with text is the Claude Code input prompt, NOT a selection menu.
         // Selection menus look like:  ❯ Yes\n  Yes, allow all\n  No
         var hasArrowMarker = false
-        for (i, line) in lines.enumerated() {
+        // Only check the last 10 lines for ❯/› selection markers.
+        // Scrollback contains old submitted prompts (❯ old text) that must be ignored.
+        // Also skip the LAST ❯ line — that's the Claude Code input prompt.
+        let tailForArrow = Array(lines.suffix(10))
+        let lastPromptIdx = tailForArrow.lastIndex { $0.trimmingCharacters(in: .whitespaces).hasPrefix("❯") }
+        for (i, line) in tailForArrow.enumerated() {
+            if i == lastPromptIdx { continue }
             let t = line.trimmingCharacters(in: .whitespaces)
             guard let r = t.range(of: "❯") ?? t.range(of: "›") else { continue }
             let after = t[r.upperBound...].trimmingCharacters(in: .whitespaces)
             guard !after.isEmpty && after.count > 1 else { continue }
             // Check if the next 1-3 lines have indented options (no ❯/› prefix)
-            let nextLines = lines.dropFirst(i + 1).prefix(3)
+            let nextLines = tailForArrow.dropFirst(i + 1).prefix(3)
             let hasIndentedOptions = nextLines.contains { nextLine in
                 let nt = nextLine.trimmingCharacters(in: .whitespaces)
                 return !nt.isEmpty && !nt.hasPrefix("❯") && !nt.hasPrefix("›") && !nt.hasPrefix("─")

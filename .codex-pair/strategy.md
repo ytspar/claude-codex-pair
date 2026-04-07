@@ -1,17 +1,12 @@
 # Codex Strategy for claude-codex-pair
-Updated: 2026-04-05 23:12
+Updated: 2026-04-07 12:09
 
 ## Effectiveness
 - Total interventions: 50
-- Improved: 3 (6%)
+- Improved: 0 (0%)
 - Regressed: 0 (0%)
-- Loop detections: 37
-- Avg review duration: 11197ms
-
-## What Worked
-- Commit your changes so far before moving on. Stage all relevant files, including the new file, use a
-- Good progress. Commit your changes so far before moving on. Stage all relevant files, including any 
-- Commit your changes so far before moving on. Stage all relevant files, including any new ones, and u
+- Loop detections: 40
+- Avg review duration: 6315ms
 
 
 ## Unmatched Prompt Patterns (improve detection heuristics)
