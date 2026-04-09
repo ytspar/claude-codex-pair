@@ -112,6 +112,23 @@ final class ClaudeMonitorTests: XCTestCase {
         XCTAssertTrue(ClaudeMonitor.isSelectionPrompt(screen))
     }
 
+    func testTUIFilePickerDetectedAsSelection() {
+        // Claude Code's interactive file picker with ↑/↓ navigation
+        let screen = """
+        › 1. CodexIntegration.swift
+            Likely the core Codex integration logic
+        2. CodexLedger.swift
+            Codex ledger/logging functionality
+        3. ClaudeMonitor.swift
+            Claude monitoring with Codex references
+        4. Type something.
+
+        6. Chat about this
+        Enter to select · ↑/↓ to navigate · Esc to cancel
+        """
+        XCTAssertTrue(ClaudeMonitor.isSelectionPrompt(screen))
+    }
+
     func testPromptWithTextNotDetectedAsSelection() {
         // User typing at the ❯ prompt should NOT trigger selection detection
         let screen = """

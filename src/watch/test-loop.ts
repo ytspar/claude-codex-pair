@@ -112,7 +112,7 @@ async function waitForFreshPrompt(timeoutMs = 60000): Promise<string> {
 async function injectAndWaitForStart(prompt: string, timeoutMs = 60000): Promise<void> {
 	// Pause the monitor and wait for any in-flight Codex to finish
 	await ipc({ action: "pause_monitor", surface: SESSION_ID });
-	await sleep(3000); // Let in-flight Codex reviews complete and be discarded by pause
+	await sleep(8000); // Let in-flight Codex reviews complete (can take up to 30s, 8s covers most)
 
 	// Clear prompt and wait for it to settle
 	await ipc({ action: "send_key", surface: SESSION_ID, text: "ctrl-u" });

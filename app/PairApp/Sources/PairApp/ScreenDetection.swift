@@ -79,22 +79,21 @@ enum ScreenDetection {
     static func isSelectionPrompt(_ screenText: String) -> Bool {
         if isAcceptEditsPrompt(screenText) { return false }
         let lines = screenText.split(separator: "\n").map(String.init)
-        // Check for ❯/› selection markers — but require other indented option lines nearby.
-        // A bare ❯ with text is the Claude Code input prompt, NOT a selection menu.
-        // Selection menus look like:  ❯ Yes\n  Yes, allow all\n  No
+        let lower = screenText.lowercased()
+
+        // 1. Definitive TUI selection footer — "Enter to select" or "↑/↓ to navigate"
+        //    This is the strongest signal: Claude Code's interactive picker.
+        let hasSelectionFooter = lower.contains("enter to select") || lower.contains("↑/↓ to navigate") || lower.contains("to navigate")
+
+        // 2. Arrow markers (❯/›) with SHORT option text (≤30 chars).
+        //    Long text after ❯ is the input prompt, not a selection option.
         var hasArrowMarker = false
-        // Selection menus have SHORT option text after ❯/›: "❯ Yes", "❯ Allow once".
-        // The Claude Code input prompt has LONG text: "❯ What files in app/...".
-        // Cap at 30 chars after the marker to distinguish them.
-        let tailForArrow = Array(lines.suffix(10))
+        let tailForArrow = Array(lines.suffix(25))
         for (i, line) in tailForArrow.enumerated() {
             let t = line.trimmingCharacters(in: .whitespaces)
             guard let r = t.range(of: "❯") ?? t.range(of: "›") else { continue }
             let after = t[r.upperBound...].trimmingCharacters(in: .whitespaces)
-            // Selection options are short (≤30 chars): "Yes", "Allow once", "No"
-            // Input prompt text is long: "What files in app/PairApp/..."
             guard !after.isEmpty && after.count > 1 && after.count <= 30 else { continue }
-            // Also require indented option lines below (the other choices)
             let nextLines = tailForArrow.dropFirst(i + 1).prefix(3)
             let hasIndentedOptions = nextLines.contains { nextLine in
                 let nt = nextLine.trimmingCharacters(in: .whitespaces)
@@ -102,9 +101,8 @@ enum ScreenDetection {
             }
             if hasIndentedOptions { hasArrowMarker = true; break }
         }
-        // Check for numbered permission/selection options — NOT numbered file listings.
-        // Real selection prompts have options like "1. Yes", "2. No", "3. Yes, allow all".
-        // They contain permission/choice keywords in the numbered lines themselves.
+
+        // 3. Numbered permission options with selection keywords
         let tail = lines.suffix(10)
         let selectionKeywords = ["yes", "no", "allow", "deny", "accept", "reject", "skip", "cancel", "confirm", "trust"]
         let numberedSelectionLines = tail.filter { line in
@@ -112,8 +110,11 @@ enum ScreenDetection {
             guard t.hasPrefix("1.") || t.hasPrefix("2.") || t.hasPrefix("3.") else { return false }
             return selectionKeywords.contains { t.contains($0) }
         }
+
+        // 4. Permission keywords in the tail
         let hasPermissionKeywords = tail.contains { let l = $0.lowercased(); return (l.contains("yes") && l.contains("allow")) || l.contains("do you want to") || l.contains("permission") }
-        return hasArrowMarker || numberedSelectionLines.count >= 2 || hasPermissionKeywords
+
+        return hasSelectionFooter || hasArrowMarker || numberedSelectionLines.count >= 2 || hasPermissionKeywords
     }
 
     static func isInteractivePrompt(_ screenText: String) -> Bool {

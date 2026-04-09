@@ -86,10 +86,18 @@ extension ClaudeMonitor {
                 PairLog.info("[\(session.id)] Bare numeric response '\(trimmed)' without selection prompt — discarding")
                 addTimeline(st, "SKIPPED", "Bare number '\(trimmed)' discarded (no selection prompt)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response)
             } else {
-                addTimeline(st, "FEEDBACK", response, source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
-                st.hadInteraction = true
+                // Skip duplicate responses — prevents "commit your changes" loops
                 let cleaned = Self.stripLearnings(response)
-                if !cleaned.isEmpty { st.enqueue(cleaned, source: .codexFeedback) }
+                let lastResponse = st.lastCodexResponse
+                let isDuplicate = !cleaned.isEmpty && cleaned.prefix(60) == lastResponse.prefix(60)
+                if isDuplicate {
+                    PairLog.info("[\(session.id)] Duplicate Codex response — skipping: '\(cleaned.prefix(50))'")
+                    addTimeline(st, "SKIPPED", "Duplicate response: \(cleaned.prefix(60))", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response)
+                } else {
+                    addTimeline(st, "FEEDBACK", response, source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
+                    st.hadInteraction = true
+                    if !cleaned.isEmpty { st.enqueue(cleaned, source: .codexFeedback) }
+                }
             }
         }
         // After feedback, wait for the screen to actually change before reviewing again.
@@ -142,10 +150,15 @@ extension ClaudeMonitor {
     // MARK: - Backoff management
 
     func updateBackoff(_ st: SessionMonitorState) {
-        // Backoff disabled: the system should always keep moving forward.
-        // Claude conversations often don't produce git commits (questions,
-        // discussions, planning) — that's normal, not a reason to slow down.
-        // The backoff counter is still tracked for UI/logging but multiplier stays at 1.
-        st.backoffMultiplier = 1.0
+        // Gentle backoff: first 5 unhelpful reviews are free (conversations, planning).
+        // After that, gradually slow down to avoid loops like repeated "commit" nudges.
+        // Caps at 4x (review every ~12s instead of ~3s). Resets on any "improved" outcome.
+        let streak = st.consecutiveUnhelpful
+        if streak <= 5 {
+            st.backoffMultiplier = 1.0
+        } else {
+            let exponent = min(Double(streak - 5), 4.0) // 0..4
+            st.backoffMultiplier = min(pow(1.5, exponent), 4.0) // 1.0, 1.5, 2.25, 3.375, 4.0
+        }
     }
 }

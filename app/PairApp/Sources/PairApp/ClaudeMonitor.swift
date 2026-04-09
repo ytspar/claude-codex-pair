@@ -776,6 +776,16 @@ class ClaudeMonitor: ObservableObject {
                 st.repeatCount = 0
             }
 
+            // Skip repeated identical responses — prevents "commit your changes" loops
+            if st.repeatCount >= 2 && !Self.isSelectionPrompt(screenText) {
+                PairLog.info("[\(session.id)] Codex repeated same response \(st.repeatCount + 1) times — skipping")
+                self.transitionAndSync(st, to: .watching, reason: "repeated response (\(st.repeatCount + 1)x)")
+                DispatchQueue.main.async {
+                    self.addTimeline(st, "SKIPPED", "Repeated response skipped (\(st.repeatCount + 1)x): \(response.prefix(60))")
+                }
+                return
+            }
+
             let isSelection = Self.isSelectionPrompt(screenText)
             PairLog.info("[\(session.id)] Codex (\(durationMs ?? 0)ms): \(response.prefix(150)) [selection=\(isSelection), backoff=\(String(format: "%.1f", st.backoffMultiplier))x]")
             st.lastCodexResponse = response
