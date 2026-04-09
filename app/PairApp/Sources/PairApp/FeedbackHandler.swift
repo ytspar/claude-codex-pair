@@ -49,27 +49,40 @@ extension ClaudeMonitor {
                 st.hadInteraction = true; session.sendEnter()
             }
         } else if isSelection && isNumericResponse, let option = Int(trimmed) {
-            st.consecutiveSelects += 1
-            if st.consecutiveSelects > 5 {
+            // Re-verify the screen is STILL a selection prompt right now.
+            // The screen may have changed since the review was triggered.
+            let freshScreen = session.readScreen()
+            let stillSelection = Self.isSelectionPrompt(freshScreen)
+            if !stillSelection {
+                PairLog.info("[\(session.id)] Selection prompt gone on re-check — discarding option \(option)")
+                addTimeline(st, "SKIPPED", "Selection vanished on re-read, option \(option) discarded", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet)
+            } else if st.consecutiveSelects > 5 {
                 PairLog.error("[\(session.id)] Selection prompt stuck, sending Escape")
                 addTimeline(st, "SELECT", "Escape (selection stuck after \(st.consecutiveSelects) tries)")
                 st.consecutiveSelects = 0; session.sendEscape()
             } else {
+                st.consecutiveSelects += 1
                 PairLog.info("[\(session.id)] Selection prompt, typing \(option) + Enter")
                 addTimeline(st, "SELECT", "Selecting option \(option)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
                 st.hadInteraction = true
-                // Type the number directly — arrow keys don't work reliably with Claude Code's TUI
                 session.injectInput("\(option)\r")
             }
         } else if isSelection && !isNumericResponse {
-            // Category mismatch: detected as selection prompt but Codex didn't return a number.
-            // Record for self-improvement, then try to handle gracefully.
-            let ledger = CodexLedger(projectDir: session.cwd)
-            ledger.recordUnmatchedPrompt(screenTail: screenSnippet, expectedCategory: "selection", codexResponse: trimmed)
-            PairLog.info("[\(session.id)] Selection prompt got non-numeric response '\(trimmed.prefix(50))' — recorded for pattern improvement")
-            addTimeline(st, "UNMATCHED", "Selection expected number, got: \(trimmed.prefix(80))", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
-            // Try pressing Enter as fallback (selects default/first option)
-            st.hadInteraction = true; session.sendEnter()
+            // Re-verify selection is still on screen
+            let freshScreen = session.readScreen()
+            if !Self.isSelectionPrompt(freshScreen) {
+                PairLog.info("[\(session.id)] Selection prompt gone on re-check — treating as normal feedback")
+                let cleaned = Self.stripLearnings(response)
+                if !cleaned.isEmpty { st.enqueue(cleaned, source: .codexFeedback) }
+                addTimeline(st, "FEEDBACK", response, source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
+                st.hadInteraction = true
+            } else {
+                let ledger = CodexLedger(projectDir: session.cwd)
+                ledger.recordUnmatchedPrompt(screenTail: screenSnippet, expectedCategory: "selection", codexResponse: trimmed)
+                PairLog.info("[\(session.id)] Selection prompt got non-numeric response '\(trimmed.prefix(50))' — recorded for pattern improvement")
+                addTimeline(st, "UNMATCHED", "Selection expected number, got: \(trimmed.prefix(80))", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
+                st.hadInteraction = true; session.sendEnter()
+            }
         } else if userTypedDuringReview {
             st.consecutiveSelects = 0
             PairLog.info("[\(session.id)] User typed during review — queueing Codex feedback")
