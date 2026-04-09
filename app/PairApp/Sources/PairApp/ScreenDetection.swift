@@ -83,18 +83,18 @@ enum ScreenDetection {
         // A bare ❯ with text is the Claude Code input prompt, NOT a selection menu.
         // Selection menus look like:  ❯ Yes\n  Yes, allow all\n  No
         var hasArrowMarker = false
-        // Only check the last 10 lines for ❯/› selection markers.
-        // Scrollback contains old submitted prompts (❯ old text) that must be ignored.
-        // Also skip the LAST ❯ line — that's the Claude Code input prompt.
+        // Selection menus have SHORT option text after ❯/›: "❯ Yes", "❯ Allow once".
+        // The Claude Code input prompt has LONG text: "❯ What files in app/...".
+        // Cap at 30 chars after the marker to distinguish them.
         let tailForArrow = Array(lines.suffix(10))
-        let lastPromptIdx = tailForArrow.lastIndex { $0.trimmingCharacters(in: .whitespaces).hasPrefix("❯") }
         for (i, line) in tailForArrow.enumerated() {
-            if i == lastPromptIdx { continue }
             let t = line.trimmingCharacters(in: .whitespaces)
             guard let r = t.range(of: "❯") ?? t.range(of: "›") else { continue }
             let after = t[r.upperBound...].trimmingCharacters(in: .whitespaces)
-            guard !after.isEmpty && after.count > 1 else { continue }
-            // Check if the next 1-3 lines have indented options (no ❯/› prefix)
+            // Selection options are short (≤30 chars): "Yes", "Allow once", "No"
+            // Input prompt text is long: "What files in app/PairApp/..."
+            guard !after.isEmpty && after.count > 1 && after.count <= 30 else { continue }
+            // Also require indented option lines below (the other choices)
             let nextLines = tailForArrow.dropFirst(i + 1).prefix(3)
             let hasIndentedOptions = nextLines.contains { nextLine in
                 let nt = nextLine.trimmingCharacters(in: .whitespaces)
