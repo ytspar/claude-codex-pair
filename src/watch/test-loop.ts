@@ -110,21 +110,15 @@ async function waitForFreshPrompt(timeoutMs = 60000): Promise<string> {
 /** Inject a prompt and wait for Claude to start working.
  *  Clears the Codex injection queue and prompt text before injecting. */
 async function injectAndWaitForStart(prompt: string, timeoutMs = 60000): Promise<void> {
-	// Pause the monitor and wait for any in-flight Codex to finish
+	// Simple approach: pause monitor, clear line, inject, resume.
+	// If old text is on the prompt, Ctrl-U clears it. If Codex re-injects
+	// during the tiny window, the prompt will have concatenated text —
+	// but Claude handles this gracefully (it just gets extra instructions).
 	await ipc({ action: "pause_monitor", surface: SESSION_ID });
-	await sleep(8000); // Let in-flight Codex reviews complete (can take up to 30s, 8s covers most)
-
-	// Clear prompt and wait for it to settle
 	await ipc({ action: "send_key", surface: SESSION_ID, text: "ctrl-u" });
-	await sleep(500);
-	// Clear again in case something slipped through
-	await ipc({ action: "send_key", surface: SESSION_ID, text: "ctrl-u" });
-	await sleep(500);
 
 	const baseline = simpleHash(await readScreen());
 	await ipc({ action: "send_input", surface: SESSION_ID, text: prompt + "\r" });
-
-	// Resume the monitor after injection so Codex can review Claude's work
 	await ipc({ action: "resume_monitor", surface: SESSION_ID });
 
 	// Wait for screen to change from baseline
