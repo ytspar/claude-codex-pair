@@ -99,17 +99,23 @@ extension ClaudeMonitor {
                 PairLog.info("[\(session.id)] Bare numeric response '\(trimmed)' without selection prompt — discarding")
                 addTimeline(st, "SKIPPED", "Bare number '\(trimmed)' discarded (no selection prompt)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response)
             } else {
-                // Skip duplicate responses — prevents "commit your changes" loops
-                let cleaned = Self.stripLearnings(response)
-                let lastResponse = st.lastCodexResponse
-                let isDuplicate = !cleaned.isEmpty && cleaned.prefix(60) == lastResponse.prefix(60)
-                if isDuplicate {
-                    PairLog.info("[\(session.id)] Duplicate Codex response — skipping: '\(cleaned.prefix(50))'")
-                    addTimeline(st, "SKIPPED", "Duplicate response: \(cleaned.prefix(60))", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response)
+                // Sanity check: validate response before injecting
+                if let reason = validateResponse(trimmed, screenText: screenText, session: session) {
+                    PairLog.info("[\(session.id)] Response failed sanity check: \(reason)")
+                    addTimeline(st, "SKIPPED", "Sanity check: \(reason)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response)
                 } else {
-                    addTimeline(st, "FEEDBACK", response, source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
-                    st.hadInteraction = true
-                    if !cleaned.isEmpty { st.enqueue(cleaned, source: .codexFeedback) }
+                    // Skip duplicate responses — prevents "commit your changes" loops
+                    let cleaned = Self.stripLearnings(response)
+                    let lastResponse = st.lastCodexResponse
+                    let isDuplicate = !cleaned.isEmpty && cleaned.prefix(60) == lastResponse.prefix(60)
+                    if isDuplicate {
+                        PairLog.info("[\(session.id)] Duplicate Codex response — skipping: '\(cleaned.prefix(50))'")
+                        addTimeline(st, "SKIPPED", "Duplicate response: \(cleaned.prefix(60))", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response)
+                    } else {
+                        addTimeline(st, "FEEDBACK", response, source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
+                        st.hadInteraction = true
+                        if !cleaned.isEmpty { st.enqueue(cleaned, source: .codexFeedback) }
+                    }
                 }
             }
         }
@@ -121,6 +127,58 @@ extension ClaudeMonitor {
             st.stableCount = 0
             st.changeCount = 0  // Force waiting for new screen changes
         }
+    }
+
+    // MARK: - Response sanity checks
+
+    /// Validate a Codex response before injecting. Returns nil if valid,
+    /// or a reason string if the response should be discarded.
+    private func validateResponse(_ response: String, screenText: String, session: PairSession) -> String? {
+        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+
+        // 1. Too short to be useful (single word/char that isn't APPROVE)
+        if trimmed.count < 3 && !trimmed.uppercased().contains("APPROVE") {
+            return "Response too short (\(trimmed.count) chars): '\(trimmed)'"
+        }
+
+        // 2. Too long — will flood Claude's prompt and waste context
+        if trimmed.count > 1000 {
+            return "Response too long (\(trimmed.count) chars) — truncating would lose meaning"
+        }
+
+        // 3. Dangerous commands that could cause data loss
+        let dangerous = ["rm -rf /", "git push --force", "git reset --hard", "drop table", "format c:", "sudo rm"]
+        for cmd in dangerous where lower.contains(cmd) {
+            return "Dangerous command detected: '\(cmd)'"
+        }
+
+        // 4. Self-referential nonsense — Codex talking about itself or the monitor
+        if lower.contains("as codex") || lower.contains("as the codex") || lower.contains("i am codex") {
+            return "Self-referential response (Codex talking about itself)"
+        }
+
+        // 5. Commit loop detection — "commit" when git shows nothing to commit
+        if lower.contains("commit") && (lower.contains("your changes") || lower.contains("what you have")) {
+            // Check if there are actually uncommitted changes
+            let uncommitted = CodexLedger(projectDir: session.cwd).hasUncommittedWork()
+            if uncommitted == nil || uncommitted?.files == 0 {
+                return "Commit nudge but no uncommitted changes — nothing to commit"
+            }
+        }
+
+        // 6. Response looks like a system/error message, not actionable feedback
+        if lower.hasPrefix("error:") || lower.hasPrefix("warning:") || lower.hasPrefix("fatal:") {
+            return "Response looks like an error message, not feedback"
+        }
+
+        // 7. Response is just repeating the screen content back
+        let screenLower = screenText.lowercased()
+        if trimmed.count > 20, screenLower.contains(lower.prefix(60)) {
+            return "Response appears to echo screen content"
+        }
+
+        return nil // Valid
     }
 
     // MARK: - User feedback (thumbs up/down)
