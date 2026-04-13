@@ -604,3 +604,9 @@ After a green build/test checkpoint with meaningful uncommitted work, the next s
 
 ## 2026-04-13 18:59
 After a green build/test checkpoint with meaningful uncommitted work, the next step is an immediate commit; repeated inspection/selection is a loop.
+
+## 2026-04-13 19:00
+After a green checkpoint with meaningful uncommitted work, proposing additional refactors is a loop; the correct next step is to commit immediately.
+
+## 2026-04-13 19:11
+After a green build/test checkpoint with meaningful uncommitted work, the highest-value intervention is to direct an immediate commit; further inspection or bookkeeping is a loop.
