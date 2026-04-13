@@ -1,12 +1,15 @@
 # Codex Strategy for claude-codex-pair
-Updated: 2026-04-09 15:53
+Updated: 2026-04-09 18:53
 
 ## Effectiveness
 - Total interventions: 50
-- Improved: 0 (0%)
+- Improved: 1 (2%)
 - Regressed: 0 (0%)
-- Loop detections: 50
-- Avg review duration: 3585ms
+- Loop detections: 45
+- Avg review duration: 8735ms
+
+## What Worked
+- First remove the temporary `// test-loop: accept-edits validation` line from `app/PairApp/Sources/Pa
 
 
 ## Unmatched Prompt Patterns (improve detection heuristics)
