@@ -21,9 +21,9 @@ enum ScreenParser {
 
     // MARK: - Public
 
-    static func parse(_ screenText: String) -> ParsedScreen {
+    static func parse(_ screenText: String, mode: PairSession.PairMode = .claudeLeads) -> ParsedScreen {
         let lines = screenText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        let state = determineState(screenText, lines: lines)
+        let state = determineState(screenText, lines: lines, mode: mode)
         let (toolName, toolResult) = extractTool(lines)
         let message = extractClaudeMessage(lines)
         let question = state == .askingQuestion ? extractQuestion(lines) : nil
@@ -48,33 +48,49 @@ enum ScreenParser {
 
     // MARK: - State Determination
 
-    private static func determineState(_ screenText: String, lines: [String]) -> ParsedScreen.ClaudeState {
+    private static func determineState(_ screenText: String, lines: [String], mode: PairSession.PairMode = .claudeLeads) -> ParsedScreen.ClaudeState {
+        // Branch detection functions based on mode
+        let isWorking: Bool
+        let isAcceptEdits: Bool
+        let isSelection: Bool
+        let isStuck: Bool
+        let isAskingQuestion: Bool
+        let isAtPrompt: Bool
+        let isPromptEmpty: Bool
+
+        switch mode {
+        case .claudeLeads:
+            isWorking = ScreenDetection.isStillWorking(screenText)
+            isAcceptEdits = ScreenDetection.isAcceptEditsPrompt(screenText)
+            isSelection = ScreenDetection.isSelectionPrompt(screenText)
+            isStuck = ScreenDetection.isStuck(screenText)
+            isAskingQuestion = ScreenDetection.isClaudeAskingQuestion(lines)
+            isAtPrompt = ScreenDetection.isAtClaudePrompt(screenText)
+            isPromptEmpty = ScreenDetection.isPromptEmpty(screenText)
+        case .codexLeads:
+            isWorking = CodexScreenDetection.isStillWorking(screenText)
+            isAcceptEdits = CodexScreenDetection.isAcceptEditsPrompt(screenText)
+            isSelection = CodexScreenDetection.isSelectionPrompt(screenText)
+            isStuck = CodexScreenDetection.isStuck(screenText)
+            isAskingQuestion = CodexScreenDetection.isCodexAskingQuestion(lines)
+            isAtPrompt = CodexScreenDetection.isAtCodexPrompt(screenText)
+            isPromptEmpty = CodexScreenDetection.isPromptEmpty(screenText)
+        }
+
         // Priority order matters
-        if ScreenDetection.isStillWorking(screenText) {
-            return .working
-        }
-        if ScreenDetection.isAcceptEditsPrompt(screenText) {
-            return .acceptEdits
-        }
-        if ScreenDetection.isSelectionPrompt(screenText) {
+        if isWorking { return .working }
+        if isAcceptEdits { return .acceptEdits }
+        if isSelection {
             let lower = screenText.lowercased()
             let permissionKeywords = ["wants to", "allow", "permission", "do you want to proceed",
                                       "do you want to", "trust this", "deny"]
             let isPermission = permissionKeywords.contains { lower.contains($0) }
             return isPermission ? .permissionPrompt : .selectionMenu
         }
-        if ScreenDetection.isStuck(screenText) {
-            return .showingError
-        }
-        if ScreenDetection.isClaudeAskingQuestion(lines) {
-            return .askingQuestion
-        }
-        if ScreenDetection.isAtClaudePrompt(screenText) && ScreenDetection.isPromptEmpty(screenText) {
-            return .idle
-        }
-        if ScreenDetection.isAtClaudePrompt(screenText) {
-            return .waitingForInput
-        }
+        if isStuck { return .showingError }
+        if isAskingQuestion { return .askingQuestion }
+        if isAtPrompt && isPromptEmpty { return .idle }
+        if isAtPrompt { return .waitingForInput }
         return .working
     }
 

@@ -220,6 +220,17 @@ class PairSession: Identifiable, ObservableObject {
         }
     }
 
+    /// Dispatch feedback text to the terminal using the appropriate method for the session mode.
+    /// Claude mode uses line-buffered injection; Codex mode uses keystroke simulation.
+    func sendFeedback(_ text: String) {
+        switch mode {
+        case .claudeLeads:
+            injectInput(text)
+        case .codexLeads:
+            typeInput(text + "\n")  // Codex (Ink) needs \n typed as Enter
+        }
+    }
+
     /// Read the visible terminal screen as plain text.
     /// Whether the terminal is currently in alternate screen buffer mode (used by full-screen TUI apps like Codex/Ink).
     var isAltBuffer: Bool {

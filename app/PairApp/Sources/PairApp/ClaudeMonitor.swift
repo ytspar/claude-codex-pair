@@ -531,7 +531,7 @@ class ClaudeMonitor: ObservableObject {
         PairLog.screen(session.id, screenText, context: "pre-inject")
         st.transition(to: .watching, resetCounters: true, reason: "injection delivered")
         DispatchQueue.main.async {
-            session.injectInput(item.text + "\n")
+            session.sendFeedback(item.text + "\n")
             self.addTimeline(st, item.source == .taskQueue ? "TASK_STARTED" : "FEEDBACK",
                              item.source == .taskQueue ? "Dequeued: \(item.text.prefix(60))" : "Codex: \(item.text.prefix(80))")
             self.syncPublished()
@@ -791,9 +791,20 @@ class ClaudeMonitor: ObservableObject {
                 return
             }
 
-            let parsedScreen = ScreenParser.parse(screenText)
+            let parsedScreen = ScreenParser.parse(screenText, mode: session.mode)
             let conversationSummary = st.conversationSummary()
-            let result = self.callCodex(screenText: screenText, cwd: session.cwd, claudeLooping: claudeLooping, repeatCount: st.repeatCount, parsedScreen: parsedScreen, conversationSummary: conversationSummary)
+            let result: CodexResult
+            if session.mode == .codexLeads {
+                let claudeResult = ClaudeReviewIntegration.callClaude(
+                    parsedScreen: parsedScreen, screenText: screenText, cwd: session.cwd,
+                    conversationSummary: conversationSummary, claudeLooping: claudeLooping,
+                    repeatCount: st.repeatCount)
+                result = CodexResult(response: claudeResult.response,
+                                     prompt: claudeResult.prompt,
+                                     diffSummary: claudeResult.diffSummary)
+            } else {
+                result = self.callCodex(screenText: screenText, cwd: session.cwd, claudeLooping: claudeLooping, repeatCount: st.repeatCount, parsedScreen: parsedScreen, conversationSummary: conversationSummary)
+            }
             let screenSnippet = String(screenText.split(separator: "\n").suffix(8).joined(separator: "\n"))
             let response = result.response
 
@@ -937,46 +948,92 @@ class ClaudeMonitor: ObservableObject {
         }
     }
 
-    // MARK: - Screen detection helpers (thin wrappers — logic lives in ScreenDetection.swift)
+    // MARK: - Mode-aware screen detection helpers
+
+    /// Resolves the active session's PairMode for detection dispatch.
+    private var activeSessionMode: PairSession.PairMode {
+        guard let id = SessionManager.shared.activeSessionId,
+              let session = SessionManager.shared.findSession(id) else { return .claudeLeads }
+        return session.mode
+    }
 
     private func isStillWorking(_ screenText: String) -> Bool {
-        ScreenDetection.isStillWorking(screenText)
+        if activeSessionMode == .codexLeads {
+            return CodexScreenDetection.isStillWorking(screenText)
+        }
+        return ScreenDetection.isStillWorking(screenText)
     }
 
     private func isModalView(_ screenText: String) -> Bool {
-        ScreenDetection.isModalView(screenText)
+        if activeSessionMode == .codexLeads {
+            return CodexScreenDetection.isModalView(screenText)
+        }
+        return ScreenDetection.isModalView(screenText)
     }
 
     private func isStuck(_ screenText: String) -> Bool {
-        ScreenDetection.isStuck(screenText)
+        if activeSessionMode == .codexLeads {
+            return CodexScreenDetection.isStuck(screenText)
+        }
+        return ScreenDetection.isStuck(screenText)
     }
 
     func isPromptEmpty(_ screenText: String) -> Bool {  // internal for FeedbackHandler extension
-        ScreenDetection.isPromptEmpty(screenText)
+        if activeSessionMode == .codexLeads {
+            return CodexScreenDetection.isPromptEmpty(screenText)
+        }
+        return ScreenDetection.isPromptEmpty(screenText)
     }
 
+    private func isAtPrompt(_ screenText: String) -> Bool {
+        if activeSessionMode == .codexLeads {
+            return CodexScreenDetection.isAtCodexPrompt(screenText)
+        }
+        return ScreenDetection.isAtClaudePrompt(screenText)
+    }
+
+    /// Legacy name — forwards to mode-aware `isAtPrompt`.
     private func isAtClaudePrompt(_ screenText: String) -> Bool {
-        ScreenDetection.isAtClaudePrompt(screenText)
+        isAtPrompt(screenText)
     }
 
     private func isInterruptedPrompt(_ screenText: String) -> Bool {
-        ScreenDetection.isInterruptedPrompt(screenText)
+        if activeSessionMode == .codexLeads {
+            return CodexScreenDetection.isInterruptedPrompt(screenText)
+        }
+        return ScreenDetection.isInterruptedPrompt(screenText)
     }
 
     static func isAcceptEditsPrompt(_ screenText: String) -> Bool {
-        ScreenDetection.isAcceptEditsPrompt(screenText)
+        let mode = SessionManager.shared.activeSession?.mode ?? .claudeLeads
+        if mode == .codexLeads {
+            return CodexScreenDetection.isAcceptEditsPrompt(screenText)
+        }
+        return ScreenDetection.isAcceptEditsPrompt(screenText)
     }
 
     static func isSelectionPrompt(_ screenText: String) -> Bool {
-        ScreenDetection.isSelectionPrompt(screenText)
+        let mode = SessionManager.shared.activeSession?.mode ?? .claudeLeads
+        if mode == .codexLeads {
+            return CodexScreenDetection.isSelectionPrompt(screenText)
+        }
+        return ScreenDetection.isSelectionPrompt(screenText)
     }
 
     static func isInteractivePrompt(_ screenText: String) -> Bool {
-        ScreenDetection.isInteractivePrompt(screenText)
+        let mode = SessionManager.shared.activeSession?.mode ?? .claudeLeads
+        if mode == .codexLeads {
+            return CodexScreenDetection.isInteractivePrompt(screenText)
+        }
+        return ScreenDetection.isInteractivePrompt(screenText)
     }
 
     static func isClaudeAskingQuestion(_ lines: [String]) -> Bool {
-        ScreenDetection.isClaudeAskingQuestion(lines)
+        let mode = SessionManager.shared.activeSession?.mode ?? .claudeLeads
+        if mode == .codexLeads {
+            return CodexScreenDetection.isCodexAskingQuestion(lines)
+        }
+        return ScreenDetection.isClaudeAskingQuestion(lines)
     }
 
     // MARK: - Codex integration (thin wrappers — logic lives in CodexIntegration.swift)

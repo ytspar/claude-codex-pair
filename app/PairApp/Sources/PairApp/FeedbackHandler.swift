@@ -110,7 +110,7 @@ extension ClaudeMonitor {
                     PairLog.info("[\(session.id)] Selection prompt, typing \(option) + Enter")
                     addTimeline(st, "SELECT", "Selecting option \(option)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
                     st.hadInteraction = true
-                    session.injectInput("\(option)\r")
+                    session.sendFeedback("\(option)\r")
                 }
 
             case .redirect(let instructions):
@@ -192,9 +192,16 @@ extension ClaudeMonitor {
             return "Dangerous command detected: '\(cmd)'"
         }
 
-        // 4. Self-referential nonsense — Codex talking about itself or the monitor
-        if lower.contains("as codex") || lower.contains("as the codex") || lower.contains("i am codex") {
-            return "Self-referential response (Codex talking about itself)"
+        // 4. Self-referential nonsense — reviewer talking about itself or the monitor
+        let isCodexReviewer = session.mode == .claudeLeads
+        if isCodexReviewer {
+            if lower.contains("as codex") || lower.contains("as the codex") || lower.contains("i am codex") {
+                return "Self-referential response (reviewer talking about itself)"
+            }
+        } else {
+            if lower.contains("as claude") || lower.contains("as the claude") || lower.contains("i am claude") {
+                return "Self-referential response (reviewer talking about itself)"
+            }
         }
 
         // 5. Commit loop detection — "commit" when git shows nothing to commit

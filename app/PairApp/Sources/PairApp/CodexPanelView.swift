@@ -318,16 +318,26 @@ struct CodexPanelView: View {
         return sessionManager.sessions.isEmpty ? "idle" : "watching"
     }
 
+    /// The name of the reviewer agent for the active session's mode.
+    private var reviewerName: String {
+        sessionManager.activeSession?.mode == .codexLeads ? "Claude" : "Codex"
+    }
+
+    /// The name of the lead agent being monitored.
+    private var leadName: String {
+        sessionManager.activeSession?.mode == .codexLeads ? "Codex" : "Claude"
+    }
+
     func statusSubtitle(_ s: String) -> String {
         switch s {
-        case "watching": return "Monitoring Claude, will review when it pauses"
-        case "waiting": return "Claude is idle, waiting for input"
+        case "watching": return "Monitoring \(leadName), will review when it pauses"
+        case "waiting": return "\(leadName) is idle, waiting for input"
         case "idle": return "No active sessions"
-        case "reviewing": return "Codex is reviewing Claude's work"
-        case "approved": return "Task complete, Claude can stop"
-        case "feedback": return "Feedback sent, Claude is continuing"
-        case "responding": return "Answering Claude's question"
-        case "error": return "Codex encountered an error"
+        case "reviewing": return "\(reviewerName) is reviewing \(leadName)'s work"
+        case "approved": return "Task complete, \(leadName) can stop"
+        case "feedback": return "Feedback sent, \(leadName) is continuing"
+        case "responding": return "Answering \(leadName)'s question"
+        case "error": return "\(reviewerName) encountered an error"
         default: return ""
         }
     }
@@ -547,12 +557,16 @@ struct TimelineEntryView: View {
 
     // MARK: - Expanded content
 
+    private var reviewerResponseLabel: String {
+        SessionManager.shared.activeSession?.mode == .codexLeads ? "CLAUDE RESPONSE" : "CODEX RESPONSE"
+    }
+
     @ViewBuilder
     private var expandedContent: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Full Codex response
+            // Full reviewer response
             if let response = entry.codexResponse, !response.isEmpty, response != entry.detail {
-                expandedSection(label: "CODEX RESPONSE", text: response, copyable: true)
+                expandedSection(label: reviewerResponseLabel, text: response, copyable: true)
             }
 
             // Git diff summary
@@ -671,9 +685,10 @@ struct TimelineEntryView: View {
     }
 
     private func sourceLabel(_ source: ClaudeMonitor.TimelineSource) -> String {
+        let reviewerTag = SessionManager.shared.activeSession?.mode == .codexLeads ? "CLAUDE" : "CODEX"
         switch source {
         case .user: return "USER"
-        case .codex: return "CODEX"
+        case .codex: return reviewerTag
         case .monitor: return "AUTO"
         }
     }
