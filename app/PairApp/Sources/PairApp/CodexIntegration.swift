@@ -16,10 +16,11 @@ enum CodexIntegration {
     /// Build the Codex prompt, spawn the subprocess, parse the JSON response.
     /// All instance state that `ClaudeMonitor` formerly accessed is passed in explicitly.
     static func callCodex(screenText: String, cwd: String, claudeLooping: Bool = false,
-                           repeatCount: Int = 0, codexTimeoutSec: Double = 30) -> CodexResult {
+                           repeatCount: Int = 0, codexTimeoutSec: Double = 30,
+                           parsedScreen: ParsedScreen? = nil, conversationSummary: String = "") -> CodexResult {
         PairLog.info(">>> callCodex entered (cwd=\(cwd), screen=\(screenText.count) chars)")
-        let lastLines = screenText.split(separator: "\n").suffix(40).joined(separator: "\n")
-        let isSelection = ScreenDetection.isSelectionPrompt(screenText)
+        let lastLines = screenText.split(separator: "\n").suffix(20).joined(separator: "\n")
+        let screen = parsedScreen ?? ScreenParser.parse(screenText)
         let diffSummary = gitDiffSummary(cwd: cwd)
         let diffDetail = gitDiffDetail(cwd: cwd)
         let ledger = CodexLedger(projectDir: cwd)
@@ -36,88 +37,96 @@ enum CodexIntegration {
             contextBlock += "Use this history to avoid repeating interventions that regressed or were neutral.\nDouble down on patterns that led to improvement.\n"
         }
 
-        let isPrompt = !isSelection && ScreenDetection.isInteractivePrompt(screenText)
-        let prompt: String
+        var loopWarning = ""
+        if claudeLooping {
+            loopWarning += "\n⚠️ POSSIBLE LOOP: Claude's screen looks similar across recent cycles. If stuck, tell Claude to STOP and try something fundamentally different. Suggest a concrete alternative.\n"
+        }
+        if repeatCount >= 2 {
+            loopWarning += "\nNOTE: Your last \(repeatCount + 1) responses were identical. Check if the situation is actually progressing.\n"
+        }
+        let diffBlock = (diffDetail.map { !$0.isEmpty } ?? false) ? "\n--- GIT DIFF ---\n\(diffDetail!)\n" : ""
 
-        if isSelection {
-            prompt = """
-            You are acting as the human operator for Claude Code. Claude is showing \
-            an interactive selection prompt. Here is the terminal output:
+        // Build commit nudge when there's significant uncommitted work
+        var commitBlock = ""
+        if let uncommitted = ledger.hasUncommittedWork(), uncommitted.files >= 3 {
+            commitBlock = """
 
-            --- BEGIN TERMINAL OUTPUT ---
-            \(lastLines)
-            --- END TERMINAL OUTPUT ---
+            --- UNCOMMITTED WORK ---
+            \(uncommitted.description) (\(uncommitted.files) files total)
+            When Claude reaches a good checkpoint (feature works, tests pass, or logical unit complete), \
+            tell it to commit its changes: "Good progress. Commit what you have so far with a descriptive \
+            message, making sure all new and modified files are staged." \
+            This keeps the git history clean and makes it easy to roll back if needed.
 
-            This is a selection prompt where options are chosen by number. \
-            Pick the most permissive/thorough option. Usually: \
-            - For permission prompts, choose "Yes, allow all" (usually option 2). \
-            - For file creation/edit prompts, choose "Yes" (usually option 1). \
-            - For trust prompts, choose the most permissive option. \
-            Reply with ONLY the option number (e.g., "2"). Nothing else.
             """
-        } else if isPrompt {
-            prompt = """
-            You are acting as the human operator for Claude Code. Claude is asking \
-            for your input or confirmation. Here is the terminal output:
+        } else if let lastCommit = ledger.lastCommitSummary() {
+            commitBlock = "\n--- LAST COMMIT ---\n\(lastCommit)\n"
+        }
 
-            --- BEGIN TERMINAL OUTPUT ---
-            \(lastLines)
-            --- END TERMINAL OUTPUT ---
-            \(contextBlock)
-            You ARE the user. Respond exactly as a knowledgeable developer would: \
-            - For Y/n or yes/no prompts: reply "y" or "yes" to proceed (or "n" if the action looks wrong). \
-            - For "Press Enter to continue": reply with just an empty line. \
-            - For questions about what to do: answer directly and concisely. \
-            - For trust/permission prompts: grant permission (the user trusts their tools). \
-            - For "Are you sure?" / "Proceed?": confirm with "y" or "yes". \
-            - For any other question: use your best judgment as the developer would. \
-            Only output the exact text to type. No explanations. No quotes.
-            """
-        } else {
-            var loopWarning = ""
-            if claudeLooping {
-                loopWarning += "\n⚠️ POSSIBLE LOOP: Claude's screen looks similar across recent cycles. If stuck, tell Claude to STOP and try something fundamentally different. Suggest a concrete alternative.\n"
-            }
-            if repeatCount >= 2 {
-                loopWarning += "\nNOTE: Your last \(repeatCount + 1) responses were identical. Check if the situation is actually progressing.\n"
-            }
-            let diffBlock = (diffDetail.map { !$0.isEmpty } ?? false) ? "\n--- GIT DIFF ---\n\(diffDetail!)\n" : ""
+        // Build structured state block from ParsedScreen
+        var stateBlock = "STATE: \(screen.state.rawValue)"
+        if let tool = screen.lastToolUsed {
+            let result = screen.lastToolResult.map { " → \(String($0.prefix(200)))" } ?? ""
+            stateBlock += "\nLAST_TOOL: \(tool)\(result)"
+        }
+        if let msg = screen.claudeMessage {
+            stateBlock += "\nCLAUDE_SAYS: \(String(msg.prefix(300)))"
+        }
+        if let q = screen.question {
+            stateBlock += "\nQUESTION: \(q)"
+        }
+        if let options = screen.selectionOptions {
+            let numbered = options.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
+            stateBlock += "\nOPTIONS:\n\(numbered)"
+        }
+        if let perm = screen.permissionDetail {
+            stateBlock += "\nPERMISSION: \(perm)"
+        }
+        if screen.hasError, let errMsg = screen.errorMessage {
+            stateBlock += "\nERROR: \(errMsg)"
+        }
+        if !screen.filesModified.isEmpty {
+            stateBlock += "\nFILES: \(screen.filesModified.joined(separator: ", "))"
+        }
 
-            // Build commit nudge when there's significant uncommitted work
-            var commitBlock = ""
-            if let uncommitted = ledger.hasUncommittedWork(), uncommitted.files >= 3 {
-                commitBlock = """
+        var conversationBlock = ""
+        if !conversationSummary.isEmpty {
+            conversationBlock = "\nRECENT CONVERSATION:\n\(conversationSummary)\n"
+        }
 
-                --- UNCOMMITTED WORK ---
-                \(uncommitted.description) (\(uncommitted.files) files total)
-                When Claude reaches a good checkpoint (feature works, tests pass, or logical unit complete), \
-                tell it to commit its changes: "Good progress. Commit what you have so far with a descriptive \
-                message, making sure all new and modified files are staged." \
-                This keeps the git history clean and makes it easy to roll back if needed.
-
-                """
-            } else if let lastCommit = ledger.lastCommitSummary() {
-                commitBlock = "\n--- LAST COMMIT ---\n\(lastCommit)\n"
-            }
-
-            prompt = """
-            You are acting as the human operator for Claude Code. Claude has paused. \
-            Here is the terminal output:
-
-            --- BEGIN TERMINAL OUTPUT ---
-            \(lastLines)
-            --- END TERMINAL OUTPUT ---
-            \(contextBlock)\(diffBlock)\(commitBlock)\(loopWarning)
-            If Claude asked a question, answer it directly. Pick the most thorough option. \
-            If Claude finished work, reply with just: APPROVE \
-            Only output the text to type into Claude. \
-            IMPORTANT: If Claude has made meaningful changes (new files, significant edits) \
-            but hasn't committed yet, tell it to commit before continuing. Say something like: \
-            "Commit your changes so far before moving on. Stage all relevant files including any new ones." \
-            This ensures progress is saved incrementally. \
-            If you notice a pattern worth remembering, add a note prefixed with "LEARN:" at the end.
+        var stateHints = ""
+        if screen.state == .selectionMenu || screen.state == .permissionPrompt {
+            stateHints += """
+            \nThis is a selection/permission prompt. Respond with SELECT: <number>.
+            For permission prompts, prefer the most permissive option (usually 2 for "Yes, allow all").
             """
         }
+        if screen.state == .askingQuestion {
+            stateHints += "\nClaude is asking you a question. Respond with ANSWER: <your response>."
+        }
+
+        let prompt = """
+        You are the human operator for Claude Code. Analyze the current state and decide what to do.
+
+        \(stateBlock)
+        \(conversationBlock)
+        \(contextBlock)\(diffBlock)\(commitBlock)\(loopWarning)
+        --- BEGIN TERMINAL OUTPUT ---
+        \(lastLines)
+        --- END TERMINAL OUTPUT ---
+
+        Respond with exactly ONE line in this format:
+        - APPROVE — Work is correct, let Claude continue
+        - WAIT — Claude is still working, do not intervene
+        - ANSWER: <text> — Answer Claude's question or provide input
+        - SELECT: <number> — Choose option from the menu (for permissions: pick most permissive)
+        - REDIRECT: <instructions> — Claude is off track, give new direction
+        - ESCALATE: <reason> — Risky/unclear situation, flag for human
+        \(stateHints)
+
+        You may also append LEARN: notes on a separate line after your decision.
+        If you notice a pattern worth remembering, add a note prefixed with "LEARN:" at the end.
+        """
 
         guard let codexPath = findCodex() else {
             PairLog.error("Codex not found")

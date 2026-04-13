@@ -33,11 +33,20 @@ extension ClaudeMonitor {
         let isAcceptEdits = Self.isAcceptEditsPrompt(screenText)
         let codexWantsApprove = response.uppercased().contains("APPROVE") || isNumericResponse
 
+        // Check user-owns-input first (before any decision dispatch)
         if userOwnsInput {
             st.consecutiveSelects = 0
             PairLog.info("[\(session.id)] User is typing — discarding Codex response, user owns this input")
             addTimeline(st, "SKIPPED", "User is typing — Codex deferred: \(response)", source: .user, durationMs: durationMs, codexPrompt: prompt, codexResponse: response)
+        } else if userTypedDuringReview {
+            st.consecutiveSelects = 0
+            PairLog.info("[\(session.id)] User typed during review — queueing Codex feedback")
+            let cleaned = Self.stripLearnings(response)
+            if !cleaned.isEmpty { st.enqueue(cleaned, source: .codexFeedback) }
+            addTimeline(st, "FEEDBACK", "Queued (user also responded): \(response)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
+            st.hadInteraction = true
         } else if isAcceptEdits && codexWantsApprove {
+            // Accept-edits special handling — check before decision dispatch
             st.consecutiveSelects += 1
             if st.consecutiveSelects > 3 {
                 PairLog.error("[\(session.id)] Accept-edits prompt stuck, sending Escape")
@@ -48,63 +57,93 @@ extension ClaudeMonitor {
                 addTimeline(st, "SELECT", "Accepting edits (Enter)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet)
                 st.hadInteraction = true; session.sendEnter()
             }
-        } else if isSelection && isNumericResponse, let option = Int(trimmed) {
-            // Re-verify the screen is STILL a selection prompt right now.
-            // The screen may have changed since the review was triggered.
-            let freshScreen = session.readScreen()
-            let stillSelection = Self.isSelectionPrompt(freshScreen)
-            if !stillSelection {
-                PairLog.info("[\(session.id)] Selection prompt gone on re-check — discarding option \(option)")
-                addTimeline(st, "SKIPPED", "Selection vanished on re-read, option \(option) discarded", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet)
-            } else if st.consecutiveSelects > 5 {
-                PairLog.error("[\(session.id)] Selection prompt stuck, sending Escape")
-                addTimeline(st, "SELECT", "Escape (selection stuck after \(st.consecutiveSelects) tries)")
-                st.consecutiveSelects = 0; session.sendEscape()
-            } else {
-                st.consecutiveSelects += 1
-                PairLog.info("[\(session.id)] Selection prompt, typing \(option) + Enter")
-                addTimeline(st, "SELECT", "Selecting option \(option)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
-                st.hadInteraction = true
-                session.injectInput("\(option)\r")
-            }
-        } else if isSelection && !isNumericResponse {
-            // Re-verify selection is still on screen
-            let freshScreen = session.readScreen()
-            if !Self.isSelectionPrompt(freshScreen) {
-                PairLog.info("[\(session.id)] Selection prompt gone on re-check — treating as normal feedback")
-                let cleaned = Self.stripLearnings(response)
-                if !cleaned.isEmpty { st.enqueue(cleaned, source: .codexFeedback) }
-                addTimeline(st, "FEEDBACK", response, source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
-                st.hadInteraction = true
-            } else {
-                let ledger = CodexLedger(projectDir: session.cwd)
-                ledger.recordUnmatchedPrompt(screenTail: screenSnippet, expectedCategory: "selection", codexResponse: trimmed)
-                PairLog.info("[\(session.id)] Selection prompt got non-numeric response '\(trimmed.prefix(50))' — recorded for pattern improvement")
-                addTimeline(st, "UNMATCHED", "Selection expected number, got: \(trimmed.prefix(80))", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
-                st.hadInteraction = true; session.sendEnter()
-            }
-        } else if userTypedDuringReview {
-            st.consecutiveSelects = 0
-            PairLog.info("[\(session.id)] User typed during review — queueing Codex feedback")
-            let cleaned = Self.stripLearnings(response)
-            if !cleaned.isEmpty { st.enqueue(cleaned, source: .codexFeedback) }
-            addTimeline(st, "FEEDBACK", "Queued (user also responded): \(response)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
-            st.hadInteraction = true
         } else {
-            st.consecutiveSelects = 0
-            // Guard against bare numeric responses being injected as text when there's no
-            // selection prompt — Codex sometimes responds with just a number to conversational
-            // questions, which confuses Claude ("Not sure what '2' refers to").
-            if isNumericResponse && !isSelection {
-                PairLog.info("[\(session.id)] Bare numeric response '\(trimmed)' without selection prompt — discarding")
-                addTimeline(st, "SKIPPED", "Bare number '\(trimmed)' discarded (no selection prompt)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response)
-            } else {
-                // Sanity check: validate response before injecting
-                if let reason = validateResponse(trimmed, screenText: screenText, session: session) {
+            // Decision-based dispatch
+            let decision = CodexDecision.parse(trimmed)
+
+            switch decision {
+            case .approve:
+                // Nothing to inject — approve is handled by caller (triggerCodexReview)
+                // This branch shouldn't normally be reached since caller checks APPROVE first,
+                // but handle gracefully if it does.
+                addTimeline(st, "APPROVED", response, source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
+
+            case .wait:
+                // Do nothing — Claude is working
+                st.consecutiveSelects = 0
+                PairLog.info("[\(session.id)] Codex says WAIT — Claude is still working")
+                addTimeline(st, "WAIT", "Codex says wait", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response)
+
+            case .answer(let text):
+                st.consecutiveSelects = 0
+                // Validate before injecting
+                if let reason = validateResponse(text, screenText: screenText, session: session) {
+                    PairLog.info("[\(session.id)] ANSWER failed sanity check: \(reason)")
+                    addTimeline(st, "SKIPPED", "Sanity check: \(reason)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response)
+                } else {
+                    let cleaned = Self.stripLearnings(text)
+                    let lastResponse = st.lastCodexResponse
+                    let isDuplicate = !cleaned.isEmpty && cleaned.prefix(60) == lastResponse.prefix(60)
+                    if isDuplicate {
+                        PairLog.info("[\(session.id)] Duplicate Codex response — skipping: '\(cleaned.prefix(50))'")
+                        addTimeline(st, "SKIPPED", "Duplicate response: \(cleaned.prefix(60))", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response)
+                    } else {
+                        addTimeline(st, "FEEDBACK", response, source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
+                        st.hadInteraction = true
+                        if !cleaned.isEmpty { st.enqueue(cleaned, source: .codexFeedback) }
+                    }
+                }
+
+            case .select(let option):
+                // Re-verify the screen is STILL a selection prompt right now.
+                let freshScreen = session.readScreen()
+                let stillSelection = Self.isSelectionPrompt(freshScreen)
+                if !stillSelection {
+                    PairLog.info("[\(session.id)] Selection prompt gone on re-check — discarding option \(option)")
+                    addTimeline(st, "SKIPPED", "Selection vanished on re-read, option \(option) discarded", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet)
+                } else if st.consecutiveSelects > 5 {
+                    PairLog.error("[\(session.id)] Selection prompt stuck, sending Escape")
+                    addTimeline(st, "SELECT", "Escape (selection stuck after \(st.consecutiveSelects) tries)")
+                    st.consecutiveSelects = 0; session.sendEscape()
+                } else {
+                    st.consecutiveSelects += 1
+                    PairLog.info("[\(session.id)] Selection prompt, typing \(option) + Enter")
+                    addTimeline(st, "SELECT", "Selecting option \(option)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
+                    st.hadInteraction = true
+                    session.injectInput("\(option)\r")
+                }
+
+            case .redirect(let instructions):
+                st.consecutiveSelects = 0
+                // Validate before injecting
+                if let reason = validateResponse(instructions, screenText: screenText, session: session) {
+                    PairLog.info("[\(session.id)] REDIRECT failed sanity check: \(reason)")
+                    addTimeline(st, "SKIPPED", "Sanity check: \(reason)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response)
+                } else {
+                    addTimeline(st, "REDIRECT", instructions, source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
+                    st.hadInteraction = true
+                    let cleaned = Self.stripLearnings(instructions)
+                    if !cleaned.isEmpty { st.enqueue(cleaned, source: .codexFeedback) }
+                }
+
+            case .escalate(let reason):
+                st.consecutiveSelects = 0
+                // Do NOT inject — log and notify user
+                PairLog.info("[\(session.id)] Codex ESCALATED: \(reason)")
+                addTimeline(st, "ESCALATE", reason, source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
+                NotificationStore.shared.addNotification(sessionId: session.id, title: "Codex escalated", body: reason)
+
+            case .unknown(let text):
+                // BACKWARD COMPAT: fall through to existing logic
+                st.consecutiveSelects = 0
+                // Guard against bare numeric responses
+                if isNumericResponse && !isSelection {
+                    PairLog.info("[\(session.id)] Bare numeric response '\(trimmed)' without selection prompt — discarding")
+                    addTimeline(st, "SKIPPED", "Bare number '\(trimmed)' discarded (no selection prompt)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response)
+                } else if let reason = validateResponse(text, screenText: screenText, session: session) {
                     PairLog.info("[\(session.id)] Response failed sanity check: \(reason)")
                     addTimeline(st, "SKIPPED", "Sanity check: \(reason)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response)
                 } else {
-                    // Skip duplicate responses — prevents "commit your changes" loops
                     let cleaned = Self.stripLearnings(response)
                     let lastResponse = st.lastCodexResponse
                     let isDuplicate = !cleaned.isEmpty && cleaned.prefix(60) == lastResponse.prefix(60)

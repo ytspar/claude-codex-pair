@@ -23,6 +23,15 @@ enum MonitorPhase: String {
     case idle, watching, reviewing, feedback, approved, error
 }
 
+/// A single conversation turn between Claude and Codex, for building contextual memory.
+struct ConversationTurn {
+    let turn: Int
+    let claudeAction: String    // "ran swift test", "asked which file"
+    let codexDecision: String   // "APPROVE", "ANSWER: yes", "WAIT"
+    let outcome: String?        // "tests passed", "file edited"
+    let timestamp: Date
+}
+
 /// Per-session monitor state — each tab gets its own polling state, timeline, and review cycle.
 /// All mutable properties must be accessed through the lock to prevent data races
 /// between the pollQueue and main thread.
@@ -60,6 +69,9 @@ class SessionMonitorState {
     /// Screen hash when we last reviewed a blocking/permission prompt.
     /// Prevents re-triggering reviews on the same unchanged permission dialog.
     private var _lastBlockingReviewHash: Int = 0
+
+    // Conversation memory
+    private var _conversationTurns: [ConversationTurn] = []
 
     // Autoresearch-inspired state
     private var _consecutiveUnhelpful = 0
@@ -304,6 +316,51 @@ class SessionMonitorState {
                 if overlap > 0.6 { similarCount += 1 }
             }
             return similarCount >= 2
+        }
+    }
+
+    // MARK: - Conversation memory
+
+    func recordTurn(claudeAction: String, codexDecision: String) {
+        lock.withLock {
+            let turn = ConversationTurn(
+                turn: (_conversationTurns.last?.turn ?? 0) + 1,
+                claudeAction: claudeAction,
+                codexDecision: codexDecision,
+                outcome: nil,
+                timestamp: Date()
+            )
+            _conversationTurns.append(turn)
+            if _conversationTurns.count > 10 {
+                _conversationTurns.removeFirst(_conversationTurns.count - 10)
+            }
+        }
+    }
+
+    func updateLastOutcome(_ outcome: String) {
+        lock.withLock {
+            guard !_conversationTurns.isEmpty else { return }
+            let last = _conversationTurns[_conversationTurns.count - 1]
+            _conversationTurns[_conversationTurns.count - 1] = ConversationTurn(
+                turn: last.turn,
+                claudeAction: last.claudeAction,
+                codexDecision: last.codexDecision,
+                outcome: outcome,
+                timestamp: last.timestamp
+            )
+        }
+    }
+
+    func conversationSummary() -> String {
+        lock.withLock {
+            _conversationTurns.map { turn in
+                let base = "- Turn \(turn.turn): Claude \(turn.claudeAction) → \(turn.codexDecision)"
+                if let outcome = turn.outcome {
+                    return base + " → \(outcome)"
+                } else {
+                    return base + " → [current]"
+                }
+            }.joined(separator: "\n")
         }
     }
 
@@ -734,7 +791,9 @@ class ClaudeMonitor: ObservableObject {
                 return
             }
 
-            let result = self.callCodex(screenText: screenText, cwd: session.cwd, claudeLooping: claudeLooping, repeatCount: st.repeatCount)
+            let parsedScreen = ScreenParser.parse(screenText)
+            let conversationSummary = st.conversationSummary()
+            let result = self.callCodex(screenText: screenText, cwd: session.cwd, claudeLooping: claudeLooping, repeatCount: st.repeatCount, parsedScreen: parsedScreen, conversationSummary: conversationSummary)
             let screenSnippet = String(screenText.split(separator: "\n").suffix(8).joined(separator: "\n"))
             let response = result.response
 
@@ -786,20 +845,25 @@ class ClaudeMonitor: ObservableObject {
                 return
             }
 
-            let isSelection = Self.isSelectionPrompt(screenText)
+            let isSelection = parsedScreen.state == .selectionMenu || parsedScreen.state == .permissionPrompt
             PairLog.info("[\(session.id)] Codex (\(durationMs ?? 0)ms): \(response.prefix(150)) [selection=\(isSelection), backoff=\(String(format: "%.1f", st.backoffMultiplier))x]")
             st.lastCodexResponse = response
 
             // Record decision with progress signal
             let ledger = CodexLedger(projectDir: session.cwd)
-            let decision = response.uppercased().contains("APPROVE") ? "APPROVE" : (isSelection ? "SELECT" : "FEEDBACK")
+            let codexDecision = CodexDecision.parse(response)
+            let decisionLabel = codexDecision.rawDescription.components(separatedBy: ":").first ?? "UNKNOWN"
             let screenTail = String(screenText.split(separator: "\n").suffix(10).joined(separator: "\n"))
-            ledger.recordDecision(cycle: st.cycleCount, decision: decision, response: response,
+            ledger.recordDecision(cycle: st.cycleCount, decision: decisionLabel, response: response,
                 screenTail: screenTail, diffSummary: result.diffSummary,
                 wasLooping: claudeLooping, durationMs: durationMs ?? 0,
                 progressBefore: st.progressAtReviewStart)
 
             Self.extractLearnings(from: response, ledger: ledger)
+
+            // Record conversation turn for memory
+            let claudeAction = self.describeClaudeAction(parsedScreen)
+            st.recordTurn(claudeAction: claudeAction, codexDecision: codexDecision.rawDescription)
 
             // Schedule outcome measurement 30s after intervention
             self.codexQueue.asyncAfter(deadline: .now() + 30) { [weak self] in
@@ -858,6 +922,21 @@ class ClaudeMonitor: ObservableObject {
         }
     }
 
+    // MARK: - Parsed screen helpers
+
+    private func describeClaudeAction(_ screen: ParsedScreen) -> String {
+        switch screen.state {
+        case .working: return "working" + (screen.lastToolUsed.map { " (\($0))" } ?? "")
+        case .askingQuestion: return "asked: \(screen.question?.prefix(50) ?? "?")"
+        case .selectionMenu: return "showing selection menu"
+        case .permissionPrompt: return "requesting permission: \(screen.permissionDetail?.prefix(50) ?? "?")"
+        case .showingError: return "error: \(screen.errorMessage?.prefix(50) ?? "unknown")"
+        case .acceptEdits: return "showing accept-edits prompt"
+        case .idle: return "idle at prompt"
+        case .waitingForInput: return "waiting for input"
+        }
+    }
+
     // MARK: - Screen detection helpers (thin wrappers — logic lives in ScreenDetection.swift)
 
     private func isStillWorking(_ screenText: String) -> Bool {
@@ -902,8 +981,8 @@ class ClaudeMonitor: ObservableObject {
 
     // MARK: - Codex integration (thin wrappers — logic lives in CodexIntegration.swift)
 
-    private func callCodex(screenText: String, cwd: String, claudeLooping: Bool = false, repeatCount: Int = 0) -> CodexResult {
-        CodexIntegration.callCodex(screenText: screenText, cwd: cwd, claudeLooping: claudeLooping, repeatCount: repeatCount, codexTimeoutSec: codexTimeoutSec)
+    private func callCodex(screenText: String, cwd: String, claudeLooping: Bool = false, repeatCount: Int = 0, parsedScreen: ParsedScreen? = nil, conversationSummary: String = "") -> CodexResult {
+        CodexIntegration.callCodex(screenText: screenText, cwd: cwd, claudeLooping: claudeLooping, repeatCount: repeatCount, codexTimeoutSec: codexTimeoutSec, parsedScreen: parsedScreen, conversationSummary: conversationSummary)
     }
 
     private static func extractLearnings(from response: String, ledger: CodexLedger) {
