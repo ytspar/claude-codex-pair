@@ -148,8 +148,11 @@ class IPCServer {
 
         case "create_session":
             let cwd = request.text ?? FileManager.default.currentDirectoryPath
+            // Optional mode: "codexLeads" or "claudeLeads" (default)
+            let mode: PairSession.PairMode = request.surface?.hasSuffix(":codex") == true ? .codexLeads : .claudeLeads
+            let sessionId = request.surface?.replacingOccurrences(of: ":codex", with: "")
             DispatchQueue.main.async {
-                SessionManager.shared.createSession(cwd: cwd, id: request.surface)
+                SessionManager.shared.createSession(cwd: cwd, id: sessionId, mode: mode)
             }
             return IPCResponse(ok: true)
 

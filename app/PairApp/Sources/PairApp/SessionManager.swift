@@ -26,10 +26,11 @@ class SessionManager: ObservableObject {
         return sessions.first
     }
 
-    func createSession(cwd: String, id: String? = nil) {
+    func createSession(cwd: String, id: String? = nil, mode: PairSession.PairMode = .claudeLeads) {
         let sessionId = id ?? "pair-\(Int(Date().timeIntervalSince1970) % 100000)"
-        PairLog.info("Creating session \(sessionId) in \(cwd)")
+        PairLog.info("Creating session \(sessionId) in \(cwd) (mode: \(mode.rawValue))")
         let session = PairSession(id: sessionId, cwd: cwd)
+        session.mode = mode
         sessions.append(session)
         activeSessionId = sessionId
     }
@@ -118,12 +119,22 @@ class PairSession: Identifiable, ObservableObject {
         self.currentDirectory = cwd
     }
 
+    enum PairMode: String { case claudeLeads, codexLeads }
+    var mode: PairMode = .claudeLeads
+
     func start(in view: PairTerminalView) {
         self.terminalView = view
         let env = ShellIntegration.shared.environment(sessionId: id, cwd: cwd)
         let envArray = env.map { "\($0.key)=\($0.value)" }
-        view.startProcess(executable: "/usr/bin/env", args: ["claude"],
-                          environment: envArray, execName: "claude", currentDirectory: cwd)
+        switch mode {
+        case .claudeLeads:
+            view.startProcess(executable: "/usr/bin/env", args: ["claude"],
+                              environment: envArray, execName: "claude", currentDirectory: cwd)
+        case .codexLeads:
+            let codexPath = CodexIntegration.findCodex() ?? "codex"
+            view.startProcess(executable: codexPath, args: ["--full-auto"],
+                              environment: envArray, execName: "codex", currentDirectory: cwd)
+        }
     }
 
     private static let maxInjectionLength = 4000
