@@ -139,6 +139,27 @@ class IPCServer {
             }
             return IPCResponse(ok: success, error: success ? nil : "Session not found")
 
+        case "type_input":
+            // Character-by-character typing for Ink-based TUIs (Codex)
+            guard let surfaceId = request.surface, let text = request.text else {
+                return IPCResponse(ok: false, error: "Missing surface or text")
+            }
+            guard let session = SessionManager.shared.findSession(surfaceId) else {
+                return IPCResponse(ok: false, error: "Session not found")
+            }
+            let typeSem = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async {
+                session.typeInput(text, delayMs: 15) {
+                    typeSem.signal()
+                }
+            }
+            // Wait for typing to complete (text.count * 15ms + buffer)
+            let typeTimeout = DispatchTime.now() + Double(text.count) * 0.02 + 5.0
+            if typeSem.wait(timeout: typeTimeout) == .timedOut {
+                return IPCResponse(ok: false, error: "Typing timed out")
+            }
+            return IPCResponse(ok: true)
+
         case "list_sessions":
             let sessions = SessionManager.shared.sessions.map { ["id": $0.id, "cwd": $0.cwd] }
             if let data = try? JSONEncoder().encode(sessions), let str = String(data: data, encoding: .utf8) {

@@ -94,8 +94,8 @@ async function main() {
 	}
 
 	// Press Enter to accept trust dialog if present
-	console.log("\nSending Enter (accept trust dialog)...");
-	await ipc({ action: "send_input", surface: SESSION_ID, text: "\r" });
+	console.log("\nTyping Enter (accept trust dialog)...");
+	await ipc({ action: "type_input", surface: SESSION_ID, text: "\n" });
 
 	// Rapid capture after trust acceptance
 	for (let i = 0; i < 15; i++) {
@@ -110,9 +110,9 @@ async function main() {
 		}
 	}
 
-	// Send first prompt
-	console.log("\nSending prompt 1: list files...");
-	await ipc({ action: "send_input", surface: SESSION_ID, text: "What files are in app/PairApp/Sources/PairApp/? Just list filenames.\r" });
+	// Send first prompt via character-by-character typing (Ink raw mode)
+	console.log("\nTyping prompt 1: list files...");
+	await ipc({ action: "type_input", surface: SESSION_ID, text: "What files are in app/PairApp/Sources/PairApp/? Just list filenames.\n" });
 
 	// Rapid capture during Codex work
 	for (let i = 0; i < 20; i++) {

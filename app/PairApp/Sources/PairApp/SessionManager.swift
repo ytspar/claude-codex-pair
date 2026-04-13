@@ -150,6 +150,29 @@ class PairSession: Identifiable, ObservableObject {
         terminalView?.sendPreservingScroll(txt: termText)
     }
 
+    /// Type text character by character, simulating real keyboard input.
+    /// Needed for Ink-based TUIs (like Codex) that read raw keystrokes
+    /// instead of buffered lines. Each character is sent as an individual
+    /// pty write with a small delay between them.
+    func typeInput(_ text: String, delayMs: Int = 10, completion: (() -> Void)? = nil) {
+        lastInputSource = .machine
+        lastMachineInputTime = Date()
+        let chars = Array(text)
+        guard !chars.isEmpty else { completion?(); return }
+
+        func sendNext(index: Int) {
+            guard index < chars.count else { completion?(); return }
+            let ch = String(chars[index])
+            // Send \r for newlines (Enter key)
+            let toSend = (ch == "\n") ? "\r" : ch
+            terminalView?.sendPreservingScroll(txt: toSend)
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(delayMs) / 1000.0) {
+                sendNext(index: index + 1)
+            }
+        }
+        sendNext(index: 0)
+    }
+
     /// Paste text into the terminal without submitting (no trailing Enter).
     /// Uses bracketed paste mode so multi-line text doesn't trigger early submission.
     func pasteInput(_ text: String) {
