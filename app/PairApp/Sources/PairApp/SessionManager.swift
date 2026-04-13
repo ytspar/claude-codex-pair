@@ -198,6 +198,11 @@ class PairSession: Identifiable, ObservableObject {
     }
 
     /// Read the visible terminal screen as plain text.
+    /// Whether the terminal is currently in alternate screen buffer mode (used by full-screen TUI apps like Codex/Ink).
+    var isAltBuffer: Bool {
+        terminalView?.getTerminal().isCurrentBufferAlternate ?? false
+    }
+
     func readScreen() -> String {
         guard let terminal = terminalView?.getTerminal() else { return "" }
         var lines: [String] = []

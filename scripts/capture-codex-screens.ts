@@ -40,6 +40,11 @@ async function readScreen(): Promise<string> {
 	return resp.ok ? (resp.result ?? "") : "";
 }
 
+async function debugScreen(): Promise<string> {
+	const resp = await ipc({ action: "debug_screen", surface: SESSION_ID });
+	return resp.ok ? (resp.result ?? "") : "error";
+}
+
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
 let captureNum = 0;
@@ -74,18 +79,53 @@ async function main() {
 	const createResp = await ipc({ action: "create_session", surface: SESSION_ID + ":codex", text: process.cwd() });
 	if (!createResp.ok) { console.error("Failed to create session:", createResp.error); process.exit(1); }
 
-	// Wait for startup
-	console.log("Waiting for session to start...");
-	await sleep(10000);
-	capture("startup", await readScreen());
+	// Rapid capture during startup — catch every frame
+	console.log("Rapid-capturing startup frames...");
+	for (let i = 0; i < 20; i++) {
+		await sleep(1000);
+		const debug = await debugScreen();
+		const screen = await readScreen();
+		if (screen.trim().length > 0) {
+			capture(`startup-${i}s`, screen);
+			console.log(`  debug: ${debug.split("\n")[0]}`);
+		} else {
+			console.log(`  [${i}s] empty screen (debug: ${debug.split("\n")[0]})`);
+		}
+	}
+
+	// Press Enter to accept trust dialog if present
+	console.log("\nSending Enter (accept trust dialog)...");
+	await ipc({ action: "send_input", surface: SESSION_ID, text: "\r" });
+
+	// Rapid capture after trust acceptance
+	for (let i = 0; i < 15; i++) {
+		await sleep(1000);
+		const debug = await debugScreen();
+		const screen = await readScreen();
+		if (screen.trim().length > 0) {
+			capture(`post-trust-${i}s`, screen);
+			console.log(`  debug: ${debug.split("\n")[0]}`);
+		} else {
+			console.log(`  [${i}s] empty screen (debug: ${debug.split("\n")[0]})`);
+		}
+	}
 
 	// Send first prompt
 	console.log("\nSending prompt 1: list files...");
 	await ipc({ action: "send_input", surface: SESSION_ID, text: "What files are in app/PairApp/Sources/PairApp/? Just list filenames.\r" });
-	await sleep(5000);
-	capture("prompt1-working", await readScreen());
-	await sleep(15000);
-	capture("prompt1-done", await readScreen());
+
+	// Rapid capture during Codex work
+	for (let i = 0; i < 20; i++) {
+		await sleep(1500);
+		const debug = await debugScreen();
+		const screen = await readScreen();
+		if (screen.trim().length > 0) {
+			capture(`work-${i}`, screen);
+			console.log(`  debug: ${debug.split("\n")[0]}`);
+		} else {
+			console.log(`  [${i}] empty screen (debug: ${debug.split("\n")[0]})`);
+		}
+	}
 
 	// Send second prompt
 	console.log("\nSending prompt 2: line count...");

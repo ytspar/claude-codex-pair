@@ -174,6 +174,31 @@ class IPCServer {
             }
             return IPCResponse(ok: true, result: screenText)
 
+        case "debug_screen":
+            guard let surfaceId = request.surface else {
+                return IPCResponse(ok: false, error: "Missing surface")
+            }
+            guard let session = SessionManager.shared.findSession(surfaceId) else {
+                return IPCResponse(ok: false, error: "Session not found")
+            }
+            var info = ""
+            let dbgSem = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async {
+                let screen = session.readScreen()
+                let isAlt = session.isAltBuffer
+                if let tv = session.terminalView {
+                    let t = tv.getTerminal()
+                    info = "alt=\(isAlt) rows=\(t.rows) cols=\(t.cols) len=\(screen.count)\n---\n\(screen)"
+                } else {
+                    info = "alt=\(isAlt) rows=0 cols=0 len=\(screen.count) (no terminal)\n---\n\(screen)"
+                }
+                dbgSem.signal()
+            }
+            if dbgSem.wait(timeout: .now() + 10) == .timedOut {
+                return IPCResponse(ok: false, error: "Timed out")
+            }
+            return IPCResponse(ok: true, result: info)
+
         case "send_key":
             guard let surfaceId = request.surface, let key = request.text else {
                 return IPCResponse(ok: false, error: "Missing surface or key")
