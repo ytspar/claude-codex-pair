@@ -601,3 +601,6 @@ After a green build/test checkpoint with meaningful uncommitted work, the next s
 
 ## 2026-04-13 18:58
 After a green build/test checkpoint with meaningful uncommitted work, the next step is to commit immediately; repeating repo inspection or editing context notes is a loop.
+
+## 2026-04-13 18:59
+After a green build/test checkpoint with meaningful uncommitted work, the next step is an immediate commit; repeated inspection/selection is a loop.
