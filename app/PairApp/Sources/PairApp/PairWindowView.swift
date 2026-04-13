@@ -91,8 +91,8 @@ struct PairWindowView: View {
 
                         // Project picker as its own "tab"
                         if !sessionManager.showLogViewer && (sessionManager.sessions.isEmpty || sessionManager.showProjectPicker) {
-                            ProjectPickerView { path in
-                                sessionManager.createSession(cwd: path)
+                            ProjectPickerView { path, mode in
+                                sessionManager.createSession(cwd: path, mode: mode)
                                 sessionManager.showProjectPicker = false
                             }
                         }

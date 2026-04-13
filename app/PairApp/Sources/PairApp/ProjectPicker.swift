@@ -6,7 +6,8 @@ struct ProjectPickerView: View {
     @ObservedObject private var store = RecentProjectsStore.shared
     @State private var searchText = ""
     @State private var browsePath: String = NSHomeDirectory() + "/git"
-    let onSelect: (String) -> Void
+    @State private var selectedMode: PairSession.PairMode = .claudeLeads
+    let onSelect: (String, PairSession.PairMode) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -74,11 +75,47 @@ struct ProjectPickerView: View {
                     ForEach(filteredProjects) { project in
                         ProjectRow(project: project) {
                             store.recordOpen(project.path)
-                            onSelect(project.path)
+                            onSelect(project.path, selectedMode)
                         }
                     }
                 }
             }
+
+            Divider().background(themeManager.border)
+
+            // Mode selector
+            HStack(spacing: 12) {
+                Text("MODE")
+                    .font(Theme.monoTiny)
+                    .foregroundColor(themeManager.textMuted)
+                    .tracking(1)
+
+                Button(action: { selectedMode = .claudeLeads }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: selectedMode == .claudeLeads ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 10))
+                        Text("Claude leads")
+                            .font(Theme.monoSmall)
+                    }
+                    .foregroundColor(selectedMode == .claudeLeads ? themeManager.accent : themeManager.textSecondary)
+                }
+                .buttonStyle(.plain)
+
+                Button(action: { selectedMode = .codexLeads }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: selectedMode == .codexLeads ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 10))
+                        Text("Codex leads")
+                            .font(Theme.monoSmall)
+                    }
+                    .foregroundColor(selectedMode == .codexLeads ? themeManager.accent : themeManager.textSecondary)
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 8)
 
             Divider().background(themeManager.border)
 
@@ -126,7 +163,7 @@ struct ProjectPickerView: View {
         panel.begin { response in
             if response == .OK, let url = panel.url {
                 store.recordOpen(url.path)
-                onSelect(url.path)
+                onSelect(url.path, selectedMode)
             }
         }
     }
