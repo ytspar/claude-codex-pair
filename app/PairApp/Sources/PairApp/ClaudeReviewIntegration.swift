@@ -124,8 +124,9 @@ enum ClaudeReviewIntegration {
         - ESCALATE: <reason> — Risky/unclear situation, flag for human
         \(stateHints)
 
-        You may also append LEARN: notes on a separate line after your decision.
-        If you notice a pattern worth remembering, add a note prefixed with "LEARN:" at the end.
+        You may append extra lines after your decision:
+        - LEARN: <observation> — A pattern worth remembering for future reviews.
+        - IMPROVE: <suggestion> — A recurring problem that should be automated: a new skill, script, hook, or tool. Be specific about what to build.
         """
 
         guard let claudePath = findClaude() else {

@@ -124,8 +124,9 @@ enum CodexIntegration {
         - ESCALATE: <reason> — Risky/unclear situation, flag for human
         \(stateHints)
 
-        You may also append LEARN: notes on a separate line after your decision.
-        If you notice a pattern worth remembering, add a note prefixed with "LEARN:" at the end.
+        You may append extra lines after your decision:
+        - LEARN: <observation> — A pattern worth remembering for future reviews.
+        - IMPROVE: <suggestion> — A recurring problem that should be automated: a new skill, script, hook, or tool. Be specific about what to build.
         """
 
         guard let codexPath = findCodex() else {
@@ -225,13 +226,19 @@ enum CodexIntegration {
             if trimmed.uppercased().hasPrefix("LEARN:") {
                 let learning = String(trimmed.dropFirst(6)).trimmingCharacters(in: .whitespaces)
                 if !learning.isEmpty { PairLog.info("Codex learning: \(learning)"); ledger.appendLearning(learning) }
+            } else if trimmed.uppercased().hasPrefix("IMPROVE:") {
+                let suggestion = String(trimmed.dropFirst(8)).trimmingCharacters(in: .whitespaces)
+                if !suggestion.isEmpty { ledger.recordImprovement(suggestion) }
             }
         }
     }
 
     static func stripLearnings(_ response: String) -> String {
         response.split(separator: "\n")
-            .filter { !$0.trimmingCharacters(in: .whitespaces).uppercased().hasPrefix("LEARN:") }
+            .filter {
+                let upper = $0.trimmingCharacters(in: .whitespaces).uppercased()
+                return !upper.hasPrefix("LEARN:") && !upper.hasPrefix("IMPROVE:")
+            }
             .joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 

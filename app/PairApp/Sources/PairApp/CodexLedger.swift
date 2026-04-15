@@ -311,6 +311,15 @@ class CodexLedger {
             strategy += "\n"
         }
 
+        let pending = pendingImprovements()
+        if !pending.isEmpty {
+            strategy += "## Pending Improvements (auto-queued as tasks)\n"
+            for entry in pending.suffix(10) {
+                strategy += "- \(entry.suggestion)\n"
+            }
+            strategy += "\n"
+        }
+
         if let unmatched = readUnmatchedPatterns() {
             strategy += "\n\(unmatched)\n"
         }
@@ -366,12 +375,99 @@ class CodexLedger {
         return summary
     }
 
+    // MARK: - Improvement suggestions (self-improving loop)
+
+    struct ImprovementEntry: Codable {
+        let timestamp: String
+        let suggestion: String
+        let queued: Bool
+    }
+
+    /// Record a tooling/skill improvement suggestion from the reviewer.
+    func recordImprovement(_ suggestion: String) {
+        ensureDir()
+        let entry = ImprovementEntry(
+            timestamp: ISO8601DateFormatter().string(from: Date()),
+            suggestion: suggestion,
+            queued: false
+        )
+        guard let data = try? JSONEncoder().encode(entry),
+              let line = String(data: data, encoding: .utf8) else { return }
+        let path = improvementsPath
+        DispatchQueue.global(qos: .utility).async {
+            Self.fileLock.withLock {
+                if let handle = FileHandle(forWritingAtPath: path) {
+                    handle.seekToEndOfFile()
+                    handle.write(Data((line + "\n").utf8))
+                    handle.closeFile()
+                } else {
+                    try? (line + "\n").write(toFile: path, atomically: true, encoding: .utf8)
+                }
+            }
+        }
+        PairLog.info("Improvement recorded: \(suggestion)")
+    }
+
+    /// Read pending (un-queued) improvement suggestions.
+    func pendingImprovements() -> [ImprovementEntry] {
+        guard let content = try? String(contentsOfFile: improvementsPath, encoding: .utf8) else { return [] }
+        let decoder = JSONDecoder()
+        return content.split(separator: "\n").compactMap { line in
+            guard let data = line.data(using: .utf8),
+                  let entry = try? decoder.decode(ImprovementEntry.self, from: data),
+                  !entry.queued else { return nil }
+            return entry
+        }
+    }
+
+    /// Mark all pending improvements as queued (so they don't get re-queued).
+    func markImprovementsQueued() {
+        Self.fileLock.withLock {
+            guard let content = try? String(contentsOfFile: improvementsPath, encoding: .utf8) else { return }
+            let decoder = JSONDecoder()
+            let encoder = JSONEncoder()
+            let lines = content.split(separator: "\n").map { line -> String in
+                guard let data = line.data(using: .utf8),
+                      var entry = try? decoder.decode(ImprovementEntry.self, from: data) else {
+                    return String(line)
+                }
+                if !entry.queued {
+                    entry = ImprovementEntry(timestamp: entry.timestamp, suggestion: entry.suggestion, queued: true)
+                    if let updated = try? encoder.encode(entry),
+                       let str = String(data: updated, encoding: .utf8) {
+                        return str
+                    }
+                }
+                return String(line)
+            }
+            try? lines.joined(separator: "\n").appending("\n")
+                .write(toFile: improvementsPath, atomically: true, encoding: .utf8)
+        }
+    }
+
+    /// Auto-queue pending improvements into the task queue.
+    /// Called periodically alongside strategy updates.
+    func queuePendingImprovements() {
+        let pending = pendingImprovements()
+        guard !pending.isEmpty else { return }
+
+        for entry in pending {
+            let prompt = "IMPROVE: \(entry.suggestion)\n\nThe reviewer flagged this as a recurring pattern that could be automated or improved. Investigate and implement the improvement — this could be a new Claude Code skill (.claude/skills/), a CLI script (scripts/), a pre-commit hook, a CLAUDE.md rule, or a code change. Commit your changes when done."
+            DispatchQueue.main.async {
+                TaskQueue.shared.addTask(prompt: prompt)
+            }
+        }
+        markImprovementsQueued()
+        PairLog.info("Queued \(pending.count) improvement task(s)")
+    }
+
     // MARK: - Helpers
 
     private var ledgerPath: String { "\(ledgerDir)/ledger.jsonl" }
     private var contextPath: String { "\(ledgerDir)/context.md" }
     private var strategyPath: String { "\(ledgerDir)/strategy.md" }
     private var unmatchedPath: String { "\(ledgerDir)/unmatched.jsonl" }
+    private var improvementsPath: String { "\(ledgerDir)/improvements.jsonl" }
 
     private func ensureDir() {
         try? FileManager.default.createDirectory(

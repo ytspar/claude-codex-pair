@@ -902,6 +902,7 @@ class ClaudeMonitor: ObservableObject {
                     if st.cycleCount % self.strategyUpdateInterval == 0 {
                         DispatchQueue.global(qos: .utility).async {
                             ledger.updateStrategy()
+                            ledger.queuePendingImprovements()
                             PairLog.info("[\(session.id)] Updated project strategy (cycle \(st.cycleCount))")
                         }
                     }
