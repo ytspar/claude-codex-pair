@@ -73,7 +73,7 @@ struct LogViewerView: View {
                 // Filter
                 HStack(spacing: 4) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 10))
+                        .font(Theme.iconSmall)
                         .foregroundColor(tm.textMuted)
                     TextField("Filter\u{2026}", text: $filterText)
                         .font(Theme.monoTiny)
@@ -84,13 +84,13 @@ struct LogViewerView: View {
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)
                 .background(tm.bgCard)
-                .cornerRadius(4)
+                .cornerRadius(6)
 
                 // Auto-scroll toggle
                 Button(action: { autoScroll.toggle() }) {
                     HStack(spacing: 3) {
                         Image(systemName: autoScroll ? "arrow.down.to.line" : "pause")
-                            .font(.system(size: 9))
+                            .font(Theme.iconSmall)
                         Text(autoScroll ? "Live" : "Paused")
                             .font(Theme.monoTiny)
                     }
@@ -122,7 +122,7 @@ struct LogViewerView: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(filteredLines) { line in
                             Text(line.text)
-                                .font(.custom(Theme.fontName, size: 10))
+                                .font(Theme.monoMicro)
                                 .foregroundColor(line.color)
                                 .textSelection(.enabled)
                                 .padding(.horizontal, 12)

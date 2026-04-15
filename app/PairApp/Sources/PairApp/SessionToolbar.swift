@@ -110,7 +110,7 @@ struct ToolbarTab: View {
 
             // Always reserve space for the close button to prevent layout shift
             Image(systemName: "xmark")
-                .font(.custom(Theme.fontName, size: 8))
+                .font(Theme.iconTiny)
                 .foregroundColor(themeManager.textMuted)
                 .frame(width: 16, height: 16)
                 .contentShape(Rectangle())
@@ -148,7 +148,7 @@ struct ToolbarButton: View {
                 .foregroundColor(isHovered ? themeManager.text : themeManager.textMuted)
                 .frame(width: 26, height: 26)
                 .background(isHovered ? themeManager.accent.opacity(0.15) : Color.clear)
-                .cornerRadius(5)
+                .cornerRadius(6)
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }

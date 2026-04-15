@@ -13,7 +13,7 @@ struct ScratchpadView: View {
         VStack(spacing: 0) {
             // Top separator
             Rectangle().fill(themeManager.border).frame(height: 1)
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 14)
 
             // Tab bar
             HStack(spacing: 0) {
@@ -21,7 +21,7 @@ struct ScratchpadView: View {
                 tabButton("TERMINAL", tab: .terminal)
                 Spacer()
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 14)
             .padding(.top, 6)
 
             // Content — both tabs share the same height constraints
@@ -36,7 +36,7 @@ struct ScratchpadView: View {
 
             // Separator above footer
             Rectangle().fill(themeManager.border).frame(height: 1)
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 14)
         }
         .background(themeManager.bg)
     }
@@ -47,7 +47,7 @@ struct ScratchpadView: View {
             .font(Theme.monoTiny)
             .foregroundColor(isActive ? themeManager.accent : themeManager.textMuted)
             .tracking(1.0)
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .overlay(
                 Rectangle()
@@ -72,7 +72,7 @@ struct ScratchpadContentView: View {
             ZStack(alignment: .topLeading) {
                 TerminalTextView(
                     text: $text,
-                    font: NSFont(name: Theme.fontName, size: 14) ?? .monospacedSystemFont(ofSize: 14, weight: .regular),
+                    font: NSFont(name: Theme.fontName, size: 12) ?? .monospacedSystemFont(ofSize: 12, weight: .regular),
                     textColor: NSColor(themeManager.text),
                     cursorColor: NSColor(themeManager.accent),
                     onEscape: { text = "" },
@@ -82,7 +82,7 @@ struct ScratchpadContentView: View {
 
                 if text.isEmpty {
                     Text("Draft a prompt for Claude")
-                        .font(Theme.mono)
+                        .font(Theme.monoSmall)
                         .foregroundColor(themeManager.textMuted)
                         .offset(x: 8, y: 4)
                         .allowsHitTesting(false)
@@ -125,7 +125,7 @@ struct ScratchpadContentView: View {
 
                 SendButton(isEmpty: text.isEmpty, themeManager: themeManager, action: sendToClaudeAction)
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 14)
             .padding(.bottom, 8)
         }
     }

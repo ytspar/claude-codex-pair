@@ -116,7 +116,7 @@ struct PairWindowView: View {
 
                     // Drag grip icon centered
                     Image(systemName: "line.3.horizontal")
-                        .font(.custom(Theme.fontName, size: 7))
+                        .font(Theme.iconTiny)
                         .foregroundColor(themeManager.textMuted.opacity(isDragging ? 1 : 0.6))
                         .rotationEffect(.degrees(90))
                 }
@@ -191,7 +191,7 @@ struct BrowseSidebarView: View {
                         Button(action: { onSelect(project.path) }) {
                             HStack(spacing: 8) {
                                 Image(systemName: project.hasGit ? "chevron.left.forwardslash.chevron.right" : "folder")
-                                    .font(.system(size: 10))
+                                    .font(Theme.iconSmall)
                                     .foregroundColor(project.hasGit ? tm.accent.opacity(0.6) : tm.textMuted)
                                     .frame(width: 16)
                                 VStack(alignment: .leading, spacing: 1) {
@@ -236,6 +236,7 @@ struct BrowseSidebarView: View {
 
             // Footer
             Rectangle().fill(tm.border).frame(height: 1)
+                .padding(.horizontal, 14)
             HStack {
                 Text("Click to open")
                     .font(Theme.monoTiny)
@@ -246,7 +247,7 @@ struct BrowseSidebarView: View {
                     .foregroundColor(tm.textMuted.opacity(0.4))
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 5)
+            .padding(.vertical, 8)
         }
         .background(tm.bg)
     }
@@ -269,7 +270,7 @@ struct EmptyTerminalView: View {
     var body: some View {
         VStack(spacing: 24) {
             Image(systemName: "terminal")
-                .font(.system(size: 56))
+                .font(Theme.iconLarge)
                 .foregroundColor(themeManager.textMuted)
             Text("Choose a project directory")
                 .font(Theme.monoHeading)

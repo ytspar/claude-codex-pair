@@ -28,8 +28,8 @@ struct CodexPanelView: View {
             // ── Status strip ──
             statusStrip
                 .padding(.horizontal, 14)
-                .padding(.top, 14)
-                .padding(.bottom, 10)
+                .padding(.top, 10)
+                .padding(.bottom, 8)
 
             // ── Thin rule ──
             Rectangle().fill(tm.border).frame(height: 1)
@@ -61,7 +61,7 @@ struct CodexPanelView: View {
 
                         // ── Queue / Timeline tab bar ──
                         contentTabBar
-                            .padding(.top, 14)
+                            .padding(.top, store.state.task.isEmpty && store.state.feedback.isEmpty ? 0 : 10)
 
                         // ── Tab content ──
                         switch activeContentTab {
@@ -87,7 +87,7 @@ struct CodexPanelView: View {
                         }
                     }
                     .padding(.horizontal, 14)
-                    .padding(.top, 10)
+                    .padding(.top, 6)
                 }
                 .onChange(of: focusedIndex) { idx in
                     if let idx = idx, idx < focusableItems.count {
@@ -138,7 +138,7 @@ struct CodexPanelView: View {
                     .font(Theme.monoTiny)
                     .fontWeight(.bold)
                     .foregroundColor(statusColor(displayStatus))
-                    .tracking(0.8)
+                    .tracking(1.0)
 
                 if !store.state.decision.isEmpty {
                     Text(store.state.decision)
@@ -158,7 +158,7 @@ struct CodexPanelView: View {
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
                         .background(tm.warning.opacity(0.1))
-                        .cornerRadius(2)
+                        .cornerRadius(3)
                         .help("Backing off: \(monitor.consecutiveUnhelpful) reviews without improvement")
                 }
 
@@ -210,7 +210,7 @@ struct CodexPanelView: View {
                     Button(action: { taskQueue.start() }) {
                         HStack(spacing: 3) {
                             Image(systemName: "play.fill")
-                                .font(.system(size: 7))
+                                .font(Theme.iconTiny)
                             Text("Start")
                                 .font(Theme.monoTiny)
                         }
@@ -223,7 +223,7 @@ struct CodexPanelView: View {
                     Button(action: { taskQueue.stop() }) {
                         HStack(spacing: 3) {
                             Image(systemName: "pause.fill")
-                                .font(.system(size: 7))
+                                .font(Theme.iconTiny)
                             Text("Pause")
                                 .font(Theme.monoTiny)
                         }
@@ -234,7 +234,7 @@ struct CodexPanelView: View {
                 }
                 if !taskQueue.items.isEmpty {
                     Button(action: { taskQueue.clearAll() }) {
-                        Text("Clear")
+                        Text("Clear All")
                             .font(Theme.monoTiny)
                             .foregroundColor(tm.textMuted.opacity(0.6))
                     }
@@ -253,12 +253,12 @@ struct CodexPanelView: View {
                 .tracking(1.0)
             if count > 0 {
                 Text("\(count)")
-                    .font(.custom(Theme.fontName, size: 8))
+                    .font(Theme.monoMicro)
                     .foregroundColor(isActive ? tm.accent : tm.textMuted)
                     .padding(.horizontal, 3)
                     .padding(.vertical, 1)
                     .background((isActive ? tm.accent : tm.textMuted).opacity(0.1))
-                    .cornerRadius(2)
+                    .cornerRadius(3)
             }
         }
         .padding(.horizontal, 8)
@@ -279,7 +279,7 @@ struct CodexPanelView: View {
         HStack(spacing: 6) {
             Circle()
                 .fill(monitor.status == "reviewing" ? tm.warning : (monitor.status == "error" ? tm.error : tm.accent))
-                .frame(width: 4, height: 4)
+                .frame(width: 5, height: 5)
             Text("\(sessionManager.sessions.count) session\(sessionManager.sessions.count == 1 ? "" : "s")")
                 .font(Theme.monoTiny)
                 .foregroundColor(tm.textSecondary)
@@ -305,7 +305,7 @@ struct CodexPanelView: View {
                 .foregroundColor(tm.textMuted)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 5)
+        .padding(.vertical, 8)
     }
 
     // MARK: - State helpers
@@ -504,12 +504,12 @@ struct TimelineEntryView: View {
                             .foregroundColor(isLatest ? color : tm.textMuted)
                         // Source badge — distinguish user, codex, and monitor actions
                         Text(sourceLabel(entry.source))
-                            .font(.custom(Theme.fontName, size: 8))
+                            .font(Theme.monoMicro)
                             .foregroundColor(sourceColor(entry.source))
                             .padding(.horizontal, 3)
                             .padding(.vertical, 1)
                             .background(sourceColor(entry.source).opacity(0.08))
-                            .cornerRadius(2)
+                            .cornerRadius(3)
                         if let ms = entry.durationMs {
                             Text(formatDuration(ms))
                                 .font(Theme.monoTiny)
@@ -523,7 +523,7 @@ struct TimelineEntryView: View {
                                 .layoutPriority(-1)
                         }
                         Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 7))
+                            .font(Theme.iconTiny)
                             .foregroundColor(tm.textMuted.opacity(0.4))
                     }
                     .contentShape(Rectangle())
@@ -608,7 +608,7 @@ struct TimelineEntryView: View {
                 Text(label)
                     .font(Theme.monoTiny)
                     .foregroundColor(tm.textMuted.opacity(0.6))
-                    .tracking(0.8)
+                    .tracking(1.0)
                 if copyable {
                     copyButton(label: nil, text: text)
                 }
@@ -633,7 +633,7 @@ struct TimelineEntryView: View {
         }) {
             HStack(spacing: 3) {
                 Image(systemName: "doc.on.doc")
-                    .font(.system(size: 8))
+                    .font(Theme.iconTiny)
                 if let label = label {
                     Text(label)
                         .font(Theme.monoTiny)
@@ -653,7 +653,7 @@ struct TimelineEntryView: View {
             onRate?(isActive ? "neutral" : rating)
         }) {
             Image(systemName: isActive ? "\(icon).fill" : icon)
-                .font(.system(size: 10))
+                .font(Theme.iconSmall)
                 .foregroundColor(isActive ? activeColor : tm.textMuted.opacity(0.5))
         }
         .buttonStyle(.plain)

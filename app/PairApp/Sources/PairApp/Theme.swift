@@ -35,6 +35,7 @@ enum Theme {
     // Fonts  - Departure Mono for headers/UI, system mono fallback
     static let fontName = "Departure Mono"
 
+    static let monoMicro = Font.custom(fontName, size: 10)
     static let monoTiny = Font.custom(fontName, size: 11)
     static let monoSmall = Font.custom(fontName, size: 12)
     static let mono = Font.custom(fontName, size: 14)
@@ -43,6 +44,11 @@ enum Theme {
     static let monoHeading = Font.custom(fontName, size: 20)
     static let monoLarge = Font.custom(fontName, size: 36)
     static let monoIcon = Font.custom(fontName, size: 48)
+
+    // SF Symbol icon sizes
+    static let iconTiny = Font.system(size: 8)
+    static let iconSmall = Font.system(size: 10)
+    static let iconLarge = Font.system(size: 56)
 }
 
 extension Color {

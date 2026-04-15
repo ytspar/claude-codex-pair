@@ -19,7 +19,7 @@ struct ProjectPickerView: View {
                 Text("SELECT PROJECT")
                     .font(Theme.mono)
                     .foregroundColor(themeManager.accent)
-                    .tracking(1.5)
+                    .tracking(1.0)
                 Spacer()
                 Button(action: openFinderPicker) {
                     HStack(spacing: 4) {
@@ -50,7 +50,7 @@ struct ProjectPickerView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 12)
 
-            Divider().background(themeManager.border)
+            Rectangle().fill(themeManager.border).frame(height: 1)
 
             // Recent projects list
             ScrollView {
@@ -81,7 +81,7 @@ struct ProjectPickerView: View {
                 }
             }
 
-            Divider().background(themeManager.border)
+            Rectangle().fill(themeManager.border).frame(height: 1)
 
             // Mode selector
             HStack(spacing: 12) {
@@ -93,7 +93,7 @@ struct ProjectPickerView: View {
                 Button(action: { selectedMode = .claudeLeads }) {
                     HStack(spacing: 4) {
                         Image(systemName: selectedMode == .claudeLeads ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 10))
+                            .font(Theme.iconSmall)
                         Text("Claude leads")
                             .font(Theme.monoSmall)
                     }
@@ -104,7 +104,7 @@ struct ProjectPickerView: View {
                 Button(action: { selectedMode = .codexLeads }) {
                     HStack(spacing: 4) {
                         Image(systemName: selectedMode == .codexLeads ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 10))
+                            .font(Theme.iconSmall)
                         Text("Codex leads")
                             .font(Theme.monoSmall)
                     }
@@ -117,7 +117,7 @@ struct ProjectPickerView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 8)
 
-            Divider().background(themeManager.border)
+            Rectangle().fill(themeManager.border).frame(height: 1)
 
             // Footer: scan for projects
             HStack {

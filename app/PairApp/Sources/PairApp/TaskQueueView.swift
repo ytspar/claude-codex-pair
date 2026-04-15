@@ -29,7 +29,7 @@ struct TaskQueueView: View {
                 Text("PAUSED")
                     .font(Theme.monoTiny)
                     .foregroundColor(tm.textMuted.opacity(0.5))
-                    .tracking(0.5)
+                    .tracking(1.0)
                     .padding(.bottom, 4)
             }
 
@@ -80,7 +80,7 @@ struct TaskQueueView: View {
             Button(action: { withAnimation(.easeOut(duration: 0.15)) { showCompleted.toggle() } }) {
                 HStack(spacing: 4) {
                     Image(systemName: showCompleted ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 7, weight: .medium))
+                        .font(Theme.iconTiny)
                         .foregroundColor(tm.textMuted.opacity(0.5))
                         .frame(width: 8)
 
@@ -135,13 +135,13 @@ struct TaskQueueView: View {
                 Text("RUNNING")
                     .font(Theme.monoTiny)
                     .foregroundColor(tm.warning)
-                    .tracking(0.5)
+                    .tracking(1.0)
             }
 
             // Remove button
             Button(action: { queue.removeTask(id: item.id) }) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 8))
+                    .font(Theme.iconTiny)
                     .foregroundColor(tm.textMuted.opacity(0.5))
                     .frame(width: 16, height: 16)
             }
@@ -174,7 +174,7 @@ struct TaskQueueView: View {
 
             Button(action: { queue.removeTask(id: item.id) }) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 8))
+                    .font(Theme.iconTiny)
                     .foregroundColor(tm.textMuted.opacity(0.3))
                     .frame(width: 16, height: 16)
             }
@@ -202,7 +202,7 @@ struct TaskQueueView: View {
 
             Button(action: { editingId = nil }) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 8))
+                    .font(Theme.iconTiny)
                     .foregroundColor(tm.textMuted)
             }
             .buttonStyle(.plain)
@@ -217,10 +217,9 @@ struct TaskQueueView: View {
     private var addTaskField: some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "plus")
-                .font(.system(size: 8, weight: .medium))
+                .font(Theme.iconTiny)
                 .foregroundColor(tm.textMuted.opacity(0.5))
-                .frame(width: 5, height: 5, alignment: .center)
-                .padding(.top, 4)
+                .frame(width: 12, height: 12)
 
             TextField("Add task\u{2026}", text: $newTaskText, axis: .vertical)
                 .font(Theme.monoTiny)
