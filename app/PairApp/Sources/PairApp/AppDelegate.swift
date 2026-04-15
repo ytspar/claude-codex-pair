@@ -80,18 +80,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         SessionManager.shared.restoreSessions()
 
         // Periodically persist sessions so they survive ungraceful kills (pkill, SIGKILL)
-        Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
+        persistTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
             SessionManager.shared.persistSessionDirs()
         }
 
-        // Also persist on SIGTERM (pkill default signal)
-        signal(SIGTERM) { _ in
-            SessionManager.shared.persistSessionDirs()
-            exit(0)
-        }
+        // No SIGTERM handler — it interferes with NSApp.terminate() and causes
+        // macOS to relaunch the app. The 30s periodic persist handles ungraceful kills.
     }
 
     var quitConfirmed = false
+    var persistTimer: Timer?
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if quitConfirmed { return .terminateNow }
@@ -119,6 +117,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Stop the persist timer first so it can't race with cleanup
+        persistTimer?.invalidate()
+        persistTimer = nil
+
         if quitConfirmed {
             // Intentional quit — remove restore file so the app doesn't auto-restore
             try? FileManager.default.removeItem(atPath: Self.sessionFile)
