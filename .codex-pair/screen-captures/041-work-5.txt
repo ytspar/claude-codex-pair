@@ -1,0 +1,24 @@
+╭───────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.120.0)                │
+│                                           │
+│ model:     gpt-5.4   /model to change     │
+│ directory: ~/git/ytspar/claude-codex-pair │
+╰───────────────────────────────────────────╯
+
+  Tip: Press Tab to queue a message when a task is running; otherwise it sends immediately (except !).
+
+
+› What files are in app/PairApp/Sources/PairApp/? Just list filenames.
+
+
+• I’m checking that directory directly and will return only the filenames.
+
+• Explored
+  └ List PairApp
+
+• Working (9s • esc to interrupt)
+
+
+› Improve documentation in @filename
+
+  gpt-5.4 default · ~/git/ytspar/claude-codex-pair

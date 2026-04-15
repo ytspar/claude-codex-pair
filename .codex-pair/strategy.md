@@ -1,15 +1,16 @@
 # Codex Strategy for claude-codex-pair
-Updated: 2026-04-09 18:53
+Updated: 2026-04-15 11:22
 
 ## Effectiveness
 - Total interventions: 50
-- Improved: 1 (2%)
+- Improved: 2 (4%)
 - Regressed: 0 (0%)
-- Loop detections: 45
-- Avg review duration: 8735ms
+- Loop detections: 15
+- Avg review duration: 7980ms
 
 ## What Worked
-- First remove the temporary `// test-loop: accept-edits validation` line from `app/PairApp/Sources/Pa
+- ANSWER: AboutView.swift, AppDelegate.swift, AppIcon.icns, AuthChecker.swift, AuthStatusView.swift, C
+- APPROVE
 
 
 ## Unmatched Prompt Patterns (improve detection heuristics)

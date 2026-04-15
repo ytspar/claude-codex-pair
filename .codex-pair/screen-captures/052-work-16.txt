@@ -1,0 +1,52 @@
+  Tip: Press Tab to queue a message when a task is running; otherwise it sends immediately (except !).
+
+
+› What files are in app/PairApp/Sources/PairApp/? Just list filenames.
+
+
+• I’m checking that directory directly and will return only the filenames.
+
+• Explored
+  └ List PairApp
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• NotificationStore.swift
+  QuitDialog.swift
+  LogViewerView.swift
+  ScreenDetection.swift
+  TaskQueue.swift
+  main.swift
+  ShellIntegration.swift
+  SessionToolbar.swift
+  TerminalTextView.swift
+  Theme.swift
+  SessionManager.swift
+  AppDelegate.swift
+  TerminalContainerView.swift
+  ScreenParser.swift
+  CodexPanelView.swift
+  AuthChecker.swift
+  CodexLedger.swift
+  CodexIntegration.swift
+  FeedbackHandler.swift
+  ThemeManager.swift
+  TaskQueueView.swift
+  IPCServer.swift
+  Version.swift
+  PairWindowView.swift
+  Logger.swift
+  ScratchpadView.swift
+  GhosttyConfig.swift
+  ProjectPicker.swift
+  AuthStatusView.swift
+  ClaudeMonitor.swift
+  PairTerminalView.swift
+  CodexDecision.swift
+  KeyboardShortcuts.swift
+  AboutView.swift
+
+
+› Improve documentation in @filename
+
+  gpt-5.4 default · ~/git/ytspar/claude-codex-pair

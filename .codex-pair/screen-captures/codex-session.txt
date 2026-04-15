@@ -1,0 +1,2 @@
+^DError: stdin is not a terminal
+=== SESSION END ===
