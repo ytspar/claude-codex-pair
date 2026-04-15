@@ -928,3 +928,12 @@ When Codex is at an idle prompt with a simple factual question about the project
 
 ## 2026-04-16 08:34
 When Claude is back at an idle prompt with uncommitted work and no active task, redirect it to make the checkpoint commit rather than approving.
+
+## 2026-04-16 08:39
+When Claude follows a checkpoint-commit redirect, stages the intended project files, reports the commit hash, explicitly excludes local-only state like `.claude/`, and returns to an idle prompt, approve immediately.
+
+## 2026-04-16 08:40
+When Claude follows a checkpoint-commit redirect, stages the intended project files, reports the commit hash, explicitly excludes local-only state like `.claude/`, and returns to an idle prompt, approve immediately.
+
+## 2026-04-16 08:42
+When Claude is back at an idle prompt with uncommitted work and no active task, redirect it to make the checkpoint commit rather than approving.

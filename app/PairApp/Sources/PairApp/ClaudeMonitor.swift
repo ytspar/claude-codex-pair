@@ -79,6 +79,9 @@ class SessionMonitorState {
     private var _progressAtReviewStart: CodexLedger.ProgressSignal?
     private var _reviewCycleStartTime: Date?
 
+    // Transient error retry tracking
+    private var _lastRetryTime: Date?
+
     // Single injection queue — one path for all prompt injection
     private var _injectionQueue: [InjectionItem] = []
 
@@ -144,6 +147,10 @@ class SessionMonitorState {
     var hadInteraction: Bool {
         get { lock.withLock { _hadInteraction } }
         set { lock.withLock { _hadInteraction = newValue } }
+    }
+    var lastRetryTime: Date? {
+        get { lock.withLock { _lastRetryTime } }
+        set { lock.withLock { _lastRetryTime = newValue } }
     }
     /// Read-only — phase determines this. Use `transition(to:)` to change.
     var reviewInProgress: Bool {
