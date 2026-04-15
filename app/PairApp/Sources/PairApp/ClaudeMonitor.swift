@@ -681,7 +681,6 @@ class ClaudeMonitor: ObservableObject {
         // If Claude hit a transient error and is back at the prompt, just retry.
         // No need to waste a reviewer call for this.
         if ScreenDetection.isTransientError(screenText) && isPromptEmpty(screenText) && st.stableCount >= 2 {
-            let retryKey = "transient_retry"
             let lastRetry = st.lastRetryTime ?? .distantPast
             if -lastRetry.timeIntervalSinceNow > 15 {  // Don't retry more than once per 15s
                 st.lastRetryTime = Date()
