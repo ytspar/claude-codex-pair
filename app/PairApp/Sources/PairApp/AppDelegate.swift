@@ -104,7 +104,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        return true
+        // Don't auto-quit when a window closes — the quit dialog is a separate window
+        // and closing it shouldn't terminate the app. Only Cmd+Q → Quit should exit.
+        return false
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {

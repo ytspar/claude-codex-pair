@@ -85,8 +85,8 @@ func showQuitDialog(sessionCount: Int) {
     let hostingView = NSHostingView(rootView: QuitDialogView(
         sessionCount: sessionCount,
         onQuit: {
-            window.close()
             (NSApp.delegate as? AppDelegate)?.quitConfirmed = true
+            window.close()
             NSApp.terminate(nil)
         },
         onCancel: {
