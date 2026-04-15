@@ -117,11 +117,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        // Persist session directories for restore after rebuild
-        SessionManager.shared.persistSessionDirs()
+        if quitConfirmed {
+            // Intentional quit — remove restore file so the app doesn't auto-restore
+            try? FileManager.default.removeItem(atPath: Self.sessionFile)
+        } else {
+            // Killed externally (pkill, rebuild) — persist for restore
+            SessionManager.shared.persistSessionDirs()
+        }
         IPCServer.shared.stop()
         SessionManager.shared.stopAll()
     }
+
+    private static let sessionFile: String = {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return "\(home)/.claude-codex-pair/sessions.json"
+    }()
 
     private func setupMenuBar() {
         let mainMenu = NSMenu()
