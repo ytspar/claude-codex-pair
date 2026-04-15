@@ -700,3 +700,66 @@ After a green checkpoint, dumping a long file list at an idle prompt is usually 
 
 ## 2026-04-15 23:17
 After a green checkpoint, an idle architectural comparison with a short file list is usually another inspection loop; push Claude to commit instead of continuing review.
+
+## 2026-04-15 23:18
+When Claude answers a trivial terminal prompt correctly and returns to an idle shell prompt, no intervention is needed.
+
+## 2026-04-15 23:18
+When Claude answers a trivial terminal prompt correctly and returns to an idle shell prompt, no intervention is needed.
+
+## 2026-04-15 23:18
+When Claude answers a trivial terminal prompt correctly and returns to an idle shell prompt, no intervention is needed.
+
+## 2026-04-15 23:20
+When Claude asks a clarification question, receives a vague answer, and then returns to an idle shell prompt without an active menu or follow-up question, avoid intervening unless it clearly stalls or loops.
+
+## 2026-04-15 23:20
+An idle shell prompt immediately after Claude asks follow-up clarifying questions usually means Claude is waiting for user input, not that it is stuck.
+
+## 2026-04-15 23:20
+When Claude answers a trivial terminal prompt like `echo done` and returns to an idle shell prompt, approve without intervening even if the UI still labels the state as `selectionMenu`.
+
+## 2026-04-15 23:21
+When Claude answers a trivial terminal prompt like `echo done` and returns to an idle shell prompt, approve without intervening even if the UI still labels the state as `selectionMenu`.
+
+## 2026-04-15 23:21
+When Claude runs a trivial shell command like `echo 'backoff test'` and returns to an idle prompt, treat it as completed successfully and approve even if the UI still says `selectionMenu`.
+
+## 2026-04-15 23:21
+When Claude runs a trivial shell command like `echo 'backoff test'` and returns to an idle prompt, approve even if the UI still labels the state as `selectionMenu`.
+
+## 2026-04-15 23:21
+When Claude runs a trivial shell command like `echo 'backoff test'` and returns to an idle shell prompt, approve even if the UI still labels the state as `selectionMenu`.
+
+## 2026-04-15 23:21
+When Claude runs a trivial shell command like `echo 'backoff test'` and returns to an idle shell prompt, approve even if the UI still labels the state as `selectionMenu`.
+
+## 2026-04-15 23:22
+When Claude runs a trivial shell command, prints the expected output, and returns to an idle prompt, approve even if the UI still reports `selectionMenu`.
+
+## 2026-04-15 23:22
+When Claude runs a trivial shell command, prints the expected output, and returns to an idle prompt, approve even if the UI still reports `selectionMenu`.
+
+## 2026-04-15 23:22
+When Claude runs a trivial shell command, prints the expected output, and returns to an idle prompt, approve even if the UI still reports `selectionMenu`.
+
+## 2026-04-15 23:22
+When Claude runs a trivial shell command, prints the expected output, and returns to an idle prompt, approve even if the UI still reports `selectionMenu`.
+
+## 2026-04-15 23:22
+When Claude runs a trivial shell command, prints the expected output, and returns to an idle shell prompt, approve even if the UI still labels the state as `selectionMenu`.
+
+## 2026-04-15 23:22
+When Claude runs a trivial shell command, prints the expected output, and returns to an idle shell prompt, approve even if the UI still labels the state as `selectionMenu`.
+
+## 2026-04-15 23:23
+When Claude correctly reports an expected failure from a deliberately invalid path and asks whether to proceed, answer that it was intentional and do not create anything.
+
+## 2026-04-15 23:24
+When Codex is idle at a fresh prompt with uncommitted work and no active task, direct it to commit rather than waiting.
+
+## 2026-04-15 23:24
+After a codebase size inspection ends at an idle prompt with uncommitted work and no active task, push Claude to commit instead of letting it continue looping in review.
+
+## 2026-04-16 08:18
+When tests pass and Claude is back at an idle shell prompt with uncommitted work, push it to commit instead of letting it continue review loops.
