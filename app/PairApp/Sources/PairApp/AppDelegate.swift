@@ -78,6 +78,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Auto-restore sessions from previous run (e.g., after rebuild)
         SessionManager.shared.restoreSessions()
+
+        // Periodically persist sessions so they survive ungraceful kills (pkill, SIGKILL)
+        Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
+            SessionManager.shared.persistSessionDirs()
+        }
+
+        // Also persist on SIGTERM (pkill default signal)
+        signal(SIGTERM) { _ in
+            SessionManager.shared.persistSessionDirs()
+            exit(0)
+        }
     }
 
     var quitConfirmed = false

@@ -52,35 +52,48 @@ class SessionManager: ObservableObject {
 
     func stopAll() { sessions.removeAll() }
 
-    /// Save current session directories so they can be restored after rebuild.
+    /// Save current session directories and modes so they can be restored after rebuild.
     func persistSessionDirs() {
-        let dirs = sessions.map { $0.cwd }
-        guard !dirs.isEmpty else { return }
+        let entries = sessions.map { ["cwd": $0.cwd, "mode": $0.mode.rawValue] }
+        guard !entries.isEmpty else { return }
         let data: [String: Any] = [
-            "cwds": dirs,
+            "sessions": entries,
             "activeIndex": sessions.firstIndex(where: { $0.id == activeSessionId }) ?? 0
         ]
         if let json = try? JSONSerialization.data(withJSONObject: data) {
             try? json.write(to: URL(fileURLWithPath: Self.sessionFile))
         }
-        PairLog.info("Persisted \(dirs.count) session dirs for restore")
+        PairLog.info("Persisted \(entries.count) session(s) for restore")
     }
 
     /// Restore sessions from a previous run. Returns true if sessions were restored.
     @discardableResult
     func restoreSessions() -> Bool {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: Self.sessionFile)),
-              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let cwds = dict["cwds"] as? [String],
-              !cwds.isEmpty else { return false }
+              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+
+        // Support new format (sessions array with mode) and legacy (cwds array)
+        let entries: [(cwd: String, mode: PairSession.PairMode)]
+        if let sessionsArray = dict["sessions"] as? [[String: String]] {
+            entries = sessionsArray.compactMap { entry in
+                guard let cwd = entry["cwd"] else { return nil }
+                let mode = PairSession.PairMode(rawValue: entry["mode"] ?? "claudeLeads") ?? .claudeLeads
+                return (cwd, mode)
+            }
+        } else if let cwds = dict["cwds"] as? [String] {
+            entries = cwds.map { ($0, .claudeLeads) }
+        } else {
+            return false
+        }
+        guard !entries.isEmpty else { return false }
         let activeIndex = dict["activeIndex"] as? Int ?? 0
 
         // Clean up the restore file so we don't re-restore on next launch
         try? FileManager.default.removeItem(atPath: Self.sessionFile)
 
-        for cwd in cwds {
-            guard FileManager.default.fileExists(atPath: cwd) else { continue }
-            createSession(cwd: cwd)
+        for entry in entries {
+            guard FileManager.default.fileExists(atPath: entry.cwd) else { continue }
+            createSession(cwd: entry.cwd, mode: entry.mode)
         }
 
         // Restore active tab
@@ -88,8 +101,8 @@ class SessionManager: ObservableObject {
             activeSessionId = sessions[activeIndex].id
         }
 
-        PairLog.info("Restored \(sessions.count) sessions from previous run")
-        return true
+        PairLog.info("Restored \(sessions.count) session(s) from previous run")
+        return !sessions.isEmpty
     }
 
     func sendInput(sessionId: String, text: String) -> Bool {
@@ -109,9 +122,11 @@ class PairSession: Identifiable, ObservableObject {
     /// Tracks whether the last input was from the user (keyboard) or machine (Codex/IPC).
     /// The monitor uses this to avoid reviewing while the user is composing a prompt.
     enum InputSource { case user, machine }
-    var lastInputSource: InputSource = .user
+    var lastInputSource: InputSource = .machine
     /// Timestamp of last machine-injected input
     var lastMachineInputTime: Date = .distantPast
+    /// Timestamp of last user keystroke
+    var lastUserInputTime: Date = .distantPast
 
     init(id: String, cwd: String) {
         self.id = id
@@ -145,9 +160,23 @@ class PairSession: Identifiable, ObservableObject {
         // Sanitize: strip control characters (except newline), truncate length
         var sanitized = String(text.prefix(Self.maxInjectionLength))
         sanitized = sanitized.unicodeScalars.filter { $0 == "\n" || $0 == "\r" || ($0.value >= 0x20 && $0.value < 0x7F) || ($0.value > 0x9F) }.map(String.init).joined()
-        // Replace \n with \r for terminal submission (Enter = carriage return)
-        let termText = sanitized.replacingOccurrences(of: "\n", with: "\r")
-        terminalView?.sendPreservingScroll(txt: termText)
+
+        // For multi-line text, use bracketed paste so newlines are treated as
+        // literal text, not Enter presses. Then send a single \r to submit.
+        if sanitized.contains("\n") || sanitized.contains("\r") {
+            // Strip trailing newlines — we'll add our own \r to submit
+            let body = sanitized
+                .trimmingCharacters(in: .newlines)
+            let escaped = "\u{1B}[200~\(body)\u{1B}[201~"
+            terminalView?.sendPreservingScroll(txt: escaped)
+            // Brief delay then submit
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                self?.terminalView?.sendPreservingScroll(txt: "\r")
+            }
+        } else {
+            // Single-line: just send with \r to submit
+            terminalView?.sendPreservingScroll(txt: sanitized + "\r")
+        }
     }
 
     /// Type text character by character, simulating real keyboard input.
@@ -177,6 +206,7 @@ class PairSession: Identifiable, ObservableObject {
     /// Uses bracketed paste mode so multi-line text doesn't trigger early submission.
     func pasteInput(_ text: String) {
         lastInputSource = .user
+        lastUserInputTime = Date()
         // Bracketed paste: terminal treats content as pasted text, not typed keystrokes.
         // This prevents newlines from being interpreted as Enter presses.
         let escaped = "\u{1B}[200~\(text)\u{1B}[201~"

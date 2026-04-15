@@ -24,14 +24,12 @@ extension ClaudeMonitor {
         }
 
         let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
-        let isNumericResponse = Int(trimmed) != nil
         let userTypedDuringReview: Bool = {
             guard let start = st.reviewStartTime else { return false }
             return session.lastInputSource == .user && session.lastMachineInputTime < start
         }()
-        let userOwnsInput = session.lastInputSource == .user
+        let userOwnsInput = session.lastInputSource == .user && -session.lastUserInputTime.timeIntervalSinceNow < 10
         let isAcceptEdits = Self.isAcceptEditsPrompt(screenText)
-        let codexWantsApprove = response.uppercased().contains("APPROVE") || isNumericResponse
 
         // Check user-owns-input first (before any decision dispatch)
         if userOwnsInput {
@@ -45,16 +43,18 @@ extension ClaudeMonitor {
             if !cleaned.isEmpty { st.enqueue(cleaned, source: .codexFeedback) }
             addTimeline(st, "FEEDBACK", "Queued (user also responded): \(response)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
             st.hadInteraction = true
-        } else if isAcceptEdits && codexWantsApprove {
-            // Accept-edits special handling — check before decision dispatch
+        } else if isAcceptEdits {
+            // Accept-edits prompts are always auto-accepted — these are blocking
+            // permission prompts and in a pairing workflow we always allow edits.
+            // No need to wait for the reviewer to say APPROVE.
             st.consecutiveSelects += 1
             if st.consecutiveSelects > 3 {
                 PairLog.error("[\(session.id)] Accept-edits prompt stuck, sending Escape")
                 addTimeline(st, "SELECT", "Escape (accept-edits stuck after \(st.consecutiveSelects) tries)")
                 st.consecutiveSelects = 0; session.sendEscape()
             } else {
-                PairLog.info("[\(session.id)] Accept-edits prompt detected, pressing Enter (\(st.consecutiveSelects))")
-                addTimeline(st, "SELECT", "Accepting edits (Enter)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet)
+                PairLog.info("[\(session.id)] Accept-edits prompt detected, auto-accepting (Enter)")
+                addTimeline(st, "SELECT", "Auto-accepting edits (Enter)", source: .monitor, durationMs: durationMs, screenSnippet: screenSnippet)
                 st.hadInteraction = true; session.sendEnter()
             }
         } else {
@@ -95,9 +95,10 @@ extension ClaudeMonitor {
                 }
 
             case .select(let option):
-                // Re-verify the screen is STILL a selection prompt right now.
+                // Re-verify with STRICT check — must have actual TUI widget (❯ markers
+                // or "Enter to select"), not just numbered text in Claude's output.
                 let freshScreen = session.readScreen()
-                let stillSelection = Self.isSelectionPrompt(freshScreen)
+                let stillSelection = ScreenDetection.isStrictSelectionPrompt(freshScreen)
                 if !stillSelection {
                     PairLog.info("[\(session.id)] Selection prompt gone on re-check — discarding option \(option)")
                     addTimeline(st, "SKIPPED", "Selection vanished on re-read, option \(option) discarded", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet)
@@ -134,12 +135,11 @@ extension ClaudeMonitor {
                 NotificationStore.shared.addNotification(sessionId: session.id, title: "Codex escalated", body: reason)
 
             case .unknown(let text):
-                // BACKWARD COMPAT: fall through to existing logic
                 st.consecutiveSelects = 0
-                // Guard against bare numeric responses
-                if isNumericResponse && !isSelection {
-                    PairLog.info("[\(session.id)] Bare numeric response '\(trimmed)' without selection prompt — discarding")
-                    addTimeline(st, "SKIPPED", "Bare number '\(trimmed)' discarded (no selection prompt)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response)
+                // Discard bare numeric responses — they're not valid actions
+                if Int(trimmed) != nil {
+                    PairLog.info("[\(session.id)] Bare numeric response '\(trimmed)' — discarding (use SELECT: N for selections)")
+                    addTimeline(st, "SKIPPED", "Bare number '\(trimmed)' discarded", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response)
                 } else if let reason = validateResponse(text, screenText: screenText, session: session) {
                     PairLog.info("[\(session.id)] Response failed sanity check: \(reason)")
                     addTimeline(st, "SKIPPED", "Sanity check: \(reason)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response)

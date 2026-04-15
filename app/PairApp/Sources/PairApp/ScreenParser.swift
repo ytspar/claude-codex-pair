@@ -77,8 +77,9 @@ enum ScreenParser {
             isPromptEmpty = CodexScreenDetection.isPromptEmpty(screenText)
         }
 
-        // Priority order matters
-        if isWorking { return .working }
+        // Priority order matters — interactive prompts (concrete structural signals)
+        // must be checked before the fuzzy "working" heuristic, which can false-positive
+        // on Claude's output content (e.g. "waiting for review" in MR text).
         if isAcceptEdits { return .acceptEdits }
         if isSelection {
             let lower = screenText.lowercased()
@@ -87,8 +88,9 @@ enum ScreenParser {
             let isPermission = permissionKeywords.contains { lower.contains($0) }
             return isPermission ? .permissionPrompt : .selectionMenu
         }
-        if isStuck { return .showingError }
         if isAskingQuestion { return .askingQuestion }
+        if isStuck { return .showingError }
+        if isWorking { return .working }
         if isAtPrompt && isPromptEmpty { return .idle }
         if isAtPrompt { return .waitingForInput }
         return .working

@@ -304,18 +304,18 @@ class SessionMonitorState {
 
     func detectLoop() -> Bool {
         lock.withLock {
-            guard _recentScreenSnapshots.count >= 3 else { return false }
+            guard _recentScreenSnapshots.count >= 4 else { return false }
             let latest = _recentScreenSnapshots.last!
             let latestWords = Set(latest.split(separator: " ").map(String.init))
-            guard !latestWords.isEmpty else { return false }
+            guard latestWords.count >= 5 else { return false }
 
             var similarCount = 0
             for snapshot in _recentScreenSnapshots.dropLast() {
                 let words = Set(snapshot.split(separator: " ").map(String.init))
                 let overlap = Double(latestWords.intersection(words).count) / Double(max(latestWords.count, 1))
-                if overlap > 0.6 { similarCount += 1 }
+                if overlap > 0.8 { similarCount += 1 }
             }
-            return similarCount >= 2
+            return similarCount >= 3
         }
     }
 
@@ -556,8 +556,8 @@ class ClaudeMonitor: ObservableObject {
 
     private func userIsComposing(_ session: PairSession, screen: String) -> Bool {
         guard session.lastInputSource == .user else { return false }
+        guard -session.lastUserInputTime.timeIntervalSinceNow < 15 else { return false }
         guard !isPromptEmpty(screen) else { return false }
-        if -session.lastMachineInputTime.timeIntervalSinceNow > 30 { return false }
         return isAtClaudePrompt(screen)
     }
 
@@ -708,7 +708,7 @@ class ClaudeMonitor: ObservableObject {
             // For empty-prompt scenarios, still respect a typing cooldown.
             let userOwnsPrompt = session.lastInputSource == .user && !isPromptEmpty(screenText)
             if userOwnsPrompt { return }
-            let userIsTyping = session.lastInputSource == .user && -session.lastMachineInputTime.timeIntervalSinceNow < 15
+            let userIsTyping = session.lastInputSource == .user && -session.lastUserInputTime.timeIntervalSinceNow < 10
 
             guard st.stableCount >= effectiveThreshold && !st.reviewInProgress && !userIsTyping else { return }
 

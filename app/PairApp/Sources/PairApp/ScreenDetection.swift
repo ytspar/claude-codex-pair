@@ -73,7 +73,13 @@ enum ScreenDetection {
 
     static func isAcceptEditsPrompt(_ screenText: String) -> Bool {
         let lower = screenText.lowercased()
-        return lower.contains("accept edits on") || lower.contains("shift+tab to cycle") || lower.contains("shift-tab to cycle") || lower.contains("do you want to make this edit")
+        return lower.contains("accept edits on")
+            || lower.contains("shift+tab to cycle") || lower.contains("shift-tab to cycle")
+            || lower.contains("do you want to make this edit")
+            || lower.contains("allow claude to edit")
+            || lower.contains("allow edit to")
+            || lower.contains("wants to edit")
+            || (lower.contains("edit") && lower.contains("allow") && lower.contains("deny"))
     }
 
     static func isSelectionPrompt(_ screenText: String) -> Bool {
@@ -115,6 +121,32 @@ enum ScreenDetection {
         let hasPermissionKeywords = tail.contains { let l = $0.lowercased(); return (l.contains("yes") && l.contains("allow")) || l.contains("do you want to") || l.contains("permission") }
 
         return hasSelectionFooter || hasArrowMarker || numberedSelectionLines.count >= 2 || hasPermissionKeywords
+    }
+
+    /// Strict selection check — only matches actual TUI selection widgets (❯ markers
+    /// or "Enter to select" footer), NOT numbered text in Claude's output.
+    /// Used to re-verify before injecting SELECT responses.
+    static func isStrictSelectionPrompt(_ screenText: String) -> Bool {
+        if isAcceptEditsPrompt(screenText) { return false }
+        let lines = screenText.split(separator: "\n").map(String.init)
+        let lower = screenText.lowercased()
+
+        // 1. TUI selection footer
+        let hasSelectionFooter = lower.contains("enter to select") || lower.contains("↑/↓ to navigate")
+
+        // 2. Arrow markers (❯/›)
+        var hasArrowMarker = false
+        for line in lines.suffix(20) {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            if let r = t.range(of: "❯") ?? t.range(of: "›") {
+                let after = t[r.upperBound...].trimmingCharacters(in: .whitespaces)
+                if !after.isEmpty && after.count > 1 && after.count <= 40 {
+                    hasArrowMarker = true; break
+                }
+            }
+        }
+
+        return hasSelectionFooter || hasArrowMarker
     }
 
     static func isInteractivePrompt(_ screenText: String) -> Bool {

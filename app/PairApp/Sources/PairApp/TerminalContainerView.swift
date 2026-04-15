@@ -125,6 +125,7 @@ struct TerminalContainerView: NSViewRepresentable {
                       let termView = self.terminalView,
                       termView.window?.firstResponder === termView else { return event }
                 self.session.lastInputSource = .user
+                self.session.lastUserInputTime = Date()
                 return event
             }
 

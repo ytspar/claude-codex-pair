@@ -44,10 +44,9 @@ enum CodexDecision {
             return .approve
         }
 
-        // Backward compat: bare number → select
-        if let n = Int(trimmed) {
-            return .select(n)
-        }
+        // Bare numbers are NOT auto-converted to SELECT — the reviewer must
+        // explicitly use "SELECT: N". Bare numbers caused false injections when
+        // the reviewer hallucinated selection prompts during normal Claude work.
 
         return .unknown(trimmed)
     }
