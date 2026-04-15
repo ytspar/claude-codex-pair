@@ -763,3 +763,9 @@ After a codebase size inspection ends at an idle prompt with uncommitted work an
 
 ## 2026-04-16 08:18
 When tests pass and Claude is back at an idle shell prompt with uncommitted work, push it to commit instead of letting it continue review loops.
+
+## 2026-04-16 08:18
+When Claude returns to an idle prompt after listing files to inspect and there is uncommitted work at a good checkpoint, redirect it to commit instead of letting it start another review loop.
+
+## 2026-04-16 08:19
+If Claude returns to a blank idle prompt immediately after a redirect to commit, restate the commit instruction rather than switching tasks or approving.
