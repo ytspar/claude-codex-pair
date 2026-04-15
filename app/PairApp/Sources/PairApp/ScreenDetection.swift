@@ -20,7 +20,21 @@ enum ScreenDetection {
 
     static func isStuck(_ screenText: String) -> Bool {
         let tail = screenText.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.suffix(20).joined(separator: "\n").lowercased()
-        return tail.contains("interrupted") || tail.contains("error:") || tail.contains("failed to") || tail.contains("apiconnectionerror") || tail.contains("what should claude do") || tail.contains("rate limit") || tail.contains("overloaded") || tail.contains("try again")
+        return tail.contains("interrupted") || tail.contains("error:") || tail.contains("failed to")
+            || tail.contains("apiconnectionerror") || tail.contains("api_error") || tail.contains("api error")
+            || tail.contains("internal server error") || tail.contains("\"type\":\"error\"")
+            || tail.contains("what should claude do") || tail.contains("rate limit")
+            || tail.contains("overloaded") || tail.contains("try again")
+            || tail.contains("529") || tail.contains("500")
+    }
+
+    /// Detect transient API errors that should be auto-retried (not sent to reviewer).
+    static func isTransientError(_ screenText: String) -> Bool {
+        let tail = screenText.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.suffix(15).joined(separator: "\n").lowercased()
+        return tail.contains("internal server error") || tail.contains("api_error")
+            || tail.contains("overloaded") || tail.contains("rate limit")
+            || tail.contains("529") || (tail.contains("500") && tail.contains("error"))
+            || tail.contains("apiconnectionerror") || tail.contains("connection error")
     }
 
     static func isPromptEmpty(_ screenText: String) -> Bool {

@@ -769,3 +769,162 @@ When Claude returns to an idle prompt after listing files to inspect and there i
 
 ## 2026-04-16 08:19
 If Claude returns to a blank idle prompt immediately after a redirect to commit, restate the commit instruction rather than switching tasks or approving.
+
+## 2026-04-16 08:19
+When Claude is back at an idle shell prompt with uncommitted work and no active task, redirect it to commit instead of letting it drift into another review or exploration loop.
+
+## 2026-04-16 08:19
+When Claude follows a commit redirect, stages only the intended project files, and reports a successful commit hash with a clear exclusion rationale, approve instead of issuing another redirect.
+
+## 2026-04-16 08:20
+When Claude completes the requested checkpoint commit, reports the commit hash, and explicitly excludes only non-project local state like `.claude/`, approve immediately instead of issuing another redirect.
+
+## 2026-04-16 08:20
+When Claude is back at an idle shell prompt after listing files and there is still uncommitted work, redirect it to commit instead of letting it drift into another review loop.
+
+## 2026-04-16 08:20
+When Claude completes the requested checkpoint commit, reports the commit hash, and clearly excludes only local non-project state like `.claude/`, approve immediately.
+
+## 2026-04-16 08:20
+When Claude follows a commit redirect, stages only the intended project files, reports the commit hash, and excludes only local non-project state like `.claude/`, approve immediately rather than issuing another redirect.
+
+## 2026-04-16 08:21
+When Claude follows a commit redirect, reports the commit hash, and excludes only local non-project state like `.claude/`, approve immediately instead of issuing another redirect.
+
+## 2026-04-16 08:21
+When Claude follows a commit redirect, makes the checkpoint commit, reports the commit hash, and excludes only local non-project state like `.claude/`, approve immediately.
+
+## 2026-04-16 08:21
+When Claude is sitting in a file-selection menu after listing files and there is already a clean checkpoint with uncommitted work, redirect to commit instead of choosing another file and restarting exploration.
+
+## 2026-04-16 08:21
+When Claude follows a commit redirect, stages only the intended project files, reports the commit hash, and clearly excludes only local non-project state like `.claude/`, approve immediately.
+
+## 2026-04-16 08:22
+When Claude is sitting in a file-selection menu after listing files and there is already a clean checkpoint with uncommitted work, redirect to commit instead of choosing another file and restarting exploration.
+
+## 2026-04-16 08:22
+When Claude follows a commit redirect, makes the checkpoint commit, reports the commit hash, and excludes only local non-project state like `.claude/`, approve immediately instead of redirecting again.
+
+## 2026-04-16 08:22
+When Claude follows a commit redirect, makes the checkpoint commit, reports the commit hash, and excludes only local non-project state like `.claude/`, approve immediately instead of redirecting again.
+
+## 2026-04-16 08:22
+When Claude answers the user's explicit terminal prompt correctly and returns to an idle prompt with no pending work, approve immediately instead of redirecting.
+
+## 2026-04-16 08:23
+When Claude answers the user's explicit terminal prompt correctly and returns to an idle prompt with no pending work, approve immediately instead of redirecting.
+
+## 2026-04-16 08:23
+When Claude follows a commit redirect, stages the intended project files, reports the commit hash, and excludes only local non-project state like `.claude/`, approve immediately instead of repeating the redirect.
+
+## 2026-04-16 08:23
+When Claude correctly answers the user's explicit terminal question and returns to an idle prompt with no pending work, approve immediately.
+
+## 2026-04-16 08:24
+When Claude follows a commit redirect, stages the intended project files, reports the commit hash, and excludes only local non-project state like `.claude/`, approve immediately instead of redirecting again.
+
+## 2026-04-16 08:24
+When Claude follows a commit redirect, reports the commit hash, and excludes only local non-project state like `.claude/`, approve immediately instead of redirecting again.
+
+## 2026-04-16 08:24
+When Claude follows a commit redirect, reports the commit hash, and excludes only local non-project state like `.claude/`, approve immediately instead of redirecting again.
+
+## 2026-04-16 08:24
+When the user explicitly asks Claude to ask a specific scoping question, redirect if Claude substitutes a different narrowing question instead of following that instruction.
+
+## 2026-04-16 08:24
+When Claude follows a commit redirect, stages the intended project files, reports the commit hash, and excludes only local non-project state like `.claude/`, approve immediately instead of redirecting again.
+
+## 2026-04-16 08:24
+When the user explicitly asks Claude to ask a specific scoping question, redirect if Claude substitutes a different narrowing question instead of following that instruction.
+
+## 2026-04-16 08:24
+When Claude follows a commit redirect, stages the intended project files, reports the commit hash, and excludes only local non-project state like `.claude/`, approve immediately instead of redirecting again.
+
+## 2026-04-16 08:25
+When the user explicitly asks Claude to ask a specific scoping question, redirect if Claude substitutes a module-selection question instead of asking about the behavior to test first.
+
+## 2026-04-16 08:25
+When Claude follows a commit redirect, stages only the intended project files, reports the commit hash, and excludes only local non-project state like `.claude/`, approve immediately instead of redirecting again.
+
+## 2026-04-16 08:25
+When the user explicitly asks Claude to ask a specific scoping question, redirect if Claude substitutes a module-selection question instead of asking about the behavior to test first.
+
+## 2026-04-16 08:25
+When the user explicitly asks Claude to ask what behavior they want to test, redirect if Claude substitutes a module-selection question instead of following that instruction first.
+
+## 2026-04-16 08:25
+When Claude follows a commit redirect, stages the intended project files, reports the commit hash, and excludes only local non-project state like `.claude/`, approve immediately instead of redirecting again.
+
+## 2026-04-16 08:25
+When Claude follows a commit redirect, stages the intended project files, reports the commit hash, and excludes only local non-project state like `.claude/`, approve immediately instead of redirecting again.
+
+## 2026-04-16 08:25
+When Claude answers a simple explicit terminal prompt correctly and returns to an idle prompt, approve immediately.
+
+## 2026-04-16 08:26
+When Claude runs a simple explicit shell command successfully and returns to an idle prompt, approve immediately.
+
+## 2026-04-16 08:26
+When Claude answers a simple explicit terminal prompt correctly and returns to an idle shell prompt, approve immediately.
+
+## 2026-04-16 08:26
+When Claude follows a commit redirect, stages only the relevant project files, reports the commit hash, and excludes local `.claude/` state, approve immediately.
+
+## 2026-04-16 08:26
+When Claude answers a simple explicit terminal prompt correctly and returns to an idle shell prompt, approve immediately.
+
+## 2026-04-16 08:26
+When Claude follows a commit redirect, stages the intended project files, reports the commit hash, and excludes only local non-project state like `.claude/`, approve immediately instead of redirecting again.
+
+## 2026-04-16 08:27
+When Claude follows a commit redirect, stages the intended project files, reports the commit hash, and excludes only local non-project state like `.claude/`, approve immediately.
+
+## 2026-04-16 08:27
+When Claude runs a simple explicit shell command successfully and returns to an idle shell prompt, approve immediately.
+
+## 2026-04-16 08:27
+When Claude follows a commit redirect, stages the intended project files, reports the commit hash, and excludes only local non-project state like `.claude/`, approve immediately.
+
+## 2026-04-16 08:27
+When Claude runs a simple explicit shell command successfully and returns to an idle shell prompt, approve immediately.
+
+## 2026-04-16 08:28
+When Claude follows a commit redirect, stages only the intended project files, reports the commit hash, and excludes only local non-project state like `.claude/`, approve immediately.
+
+## 2026-04-16 08:28
+When Claude follows a commit redirect, stages only the intended project files, reports the commit hash, and excludes only local non-project state like `.claude/`, approve immediately.
+
+## 2026-04-16 08:28
+When Claude follows a commit redirect, stages only the intended project files, reports the commit hash, and excludes only local non-project state like `.claude/`, approve immediately.
+
+## 2026-04-16 08:28
+When Codex is at an idle prompt waiting for user input with a simple question displayed, approve to let it process the question.
+
+## 2026-04-16 08:29
+When Claude follows a commit redirect, stages only the intended project files, reports the commit hash, and excludes local non-project state like `.claude/`, approve immediately.
+
+## 2026-04-16 08:29
+When Claude follows a commit redirect, stages only the intended project files, reports the commit hash, and excludes only local non-project state like `.claude/`, approve immediately.
+
+## 2026-04-16 08:29
+When Claude follows a checkpoint-commit redirect, stages only project files, reports the commit hash, and explicitly excludes local-only state like `.claude/`, approve immediately.
+
+## 2026-04-16 08:29
+When Claude runs a trivial terminal sanity check successfully and returns to an idle prompt with no follow-up question or permission request, approve immediately.
+
+## 2026-04-16 08:29
+When Claude follows a commit redirect, stages only the intended project files, reports the commit hash, and explicitly excludes local-only state like `.claude/`, approve immediately.
+
+## 2026-04-16 08:30
+When Claude follows a checkpoint-commit redirect, stages only the intended project files, reports the commit hash, and excludes only local-only state like `.claude/`, approve immediately.
+
+## 2026-04-16 08:30
+When Claude follows a commit redirect, stages only the intended project files, reports the commit hash, and explicitly excludes local-only state like `.claude/`, approve immediately.
+
+## 2026-04-16 08:30
+When Codex is at an idle prompt with a simple factual question about the project directory, approve to let it execute and answer.
+
+## 2026-04-16 08:34
+When Claude is back at an idle prompt with uncommitted work and no active task, redirect it to make the checkpoint commit rather than approving.

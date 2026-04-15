@@ -670,6 +670,23 @@ class ClaudeMonitor: ObservableObject {
         // If drain injected something, skip strategy — screen will change on next poll.
         if drainInjectionQueue(session: session, st: st, screenText: screenText) { return }
 
+        // --- Auto-retry transient API errors (500, overloaded, rate limit) ---
+        // If Claude hit a transient error and is back at the prompt, just retry.
+        // No need to waste a reviewer call for this.
+        if ScreenDetection.isTransientError(screenText) && isPromptEmpty(screenText) && st.stableCount >= 2 {
+            let retryKey = "transient_retry"
+            let lastRetry = st.lastRetryTime ?? .distantPast
+            if -lastRetry.timeIntervalSinceNow > 15 {  // Don't retry more than once per 15s
+                st.lastRetryTime = Date()
+                PairLog.info("[\(session.id)] Transient API error detected — auto-retrying")
+                DispatchQueue.main.async {
+                    self.addTimeline(st, "RETRY", "Transient API error — auto-retrying", source: .monitor)
+                    session.sendEnter()
+                }
+                return
+            }
+        }
+
         let screenState = classifyScreen(screenText, hash: hash, st: st)
         applyStrategy(screenState: screenState, screenText: screenText, session: session, st: st)
     }
