@@ -11,7 +11,7 @@ enum AppVersion {
         formatter.dateFormat = "yyyy-MM-dd"
         if let date = formatter.date(from: buildDate) {
             let display = DateFormatter()
-            display.dateFormat = "MMMM d, yyyy"
+            display.dateFormat = "MMM d"
             return "v\(version) · \(display.string(from: date))"
         }
         return "v\(version)"

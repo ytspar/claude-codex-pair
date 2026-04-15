@@ -276,33 +276,33 @@ struct CodexPanelView: View {
     // MARK: - Footer
 
     private var footer: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(monitor.status == "reviewing" ? tm.warning : (monitor.status == "error" ? tm.error : tm.accent))
-                .frame(width: 5, height: 5)
-            Text("\(sessionManager.sessions.count) session\(sessionManager.sessions.count == 1 ? "" : "s")")
-                .font(Theme.monoTiny)
-                .foregroundColor(tm.textSecondary)
-            if monitor.cycleCount > 0 {
-                Text("\u{00B7} \(monitor.cycleCount) review\(monitor.cycleCount == 1 ? "" : "s")")
+        VStack(spacing: 2) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(monitor.status == "reviewing" ? tm.warning : (monitor.status == "error" ? tm.error : tm.accent))
+                    .frame(width: 5, height: 5)
+                let parts: [String] = {
+                    var p: [String] = []
+                    let sc = sessionManager.sessions.count
+                    if sc > 0 { p.append("\(sc) sess") }
+                    if monitor.cycleCount > 0 { p.append("\(monitor.cycleCount) rev") }
+                    if taskQueue.pendingCount > 0 { p.append("\(taskQueue.pendingCount) q") }
+                    let total = monitor.sessionImproved + monitor.sessionNeutral + monitor.sessionRegressed
+                    if total > 0 { p.append("\(monitor.sessionImproved)/\(total)") }
+                    return p
+                }()
+                Text(parts.joined(separator: " · "))
                     .font(Theme.monoTiny)
                     .foregroundColor(tm.textSecondary)
-            }
-            if taskQueue.pendingCount > 0 {
-                Text("\u{00B7} \(taskQueue.pendingCount) queued")
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 4)
+                Text(AppVersion.displayString)
                     .font(Theme.monoTiny)
-                    .foregroundColor(tm.textSecondary)
+                    .foregroundColor(tm.textMuted)
+                    .lineLimit(1)
+                    .layoutPriority(1)
             }
-            let totalOutcomes = monitor.sessionImproved + monitor.sessionNeutral + monitor.sessionRegressed
-            if totalOutcomes > 0 {
-                Text("\u{00B7} \(monitor.sessionImproved)/\(totalOutcomes) helped")
-                    .font(Theme.monoTiny)
-                    .foregroundColor(monitor.sessionImproved > monitor.sessionRegressed ? tm.accent : tm.warning)
-            }
-            Spacer()
-            Text(AppVersion.displayString)
-                .font(Theme.monoTiny)
-                .foregroundColor(tm.textMuted)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
