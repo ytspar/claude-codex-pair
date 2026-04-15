@@ -81,6 +81,15 @@ class TaskQueue: ObservableObject {
 
     func addTask(title: String = "", prompt: String) {
         let displayTitle = title.isEmpty ? String(prompt.prefix(60)) : title
+        // Dedup: skip if a pending/active task with the same title or prompt already exists
+        let isDuplicate = items.contains { item in
+            (item.status == .pending || item.status == .active) &&
+            (item.prompt.prefix(80) == prompt.prefix(80) || (!title.isEmpty && item.title == title))
+        }
+        if isDuplicate {
+            PairLog.info("Task queue dedup: skipping duplicate '\(displayTitle.prefix(50))'")
+            return
+        }
         PairLog.action("queue", action: "TASK_ADDED", detail: displayTitle)
         onMain {
             self.items.append(TaskItem(title: title, prompt: prompt))

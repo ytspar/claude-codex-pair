@@ -27,7 +27,7 @@ final class ClaudeMonitorTests: XCTestCase {
 
     func testDetectsSingleGuillemotWithMultipleOptions() {
         let screen = """
-        Claude wants to edit main.swift
+        Claude wants to run a command
         › Allow once
           Allow always
           Deny
@@ -37,7 +37,7 @@ final class ClaudeMonitorTests: XCTestCase {
 
     func testDetectsNumberedOptionsPrompt() {
         let screen = """
-        Claude wants to edit foo.swift
+        Do you want to proceed?
         1. Yes
         2. Yes, allow all
         3. No
@@ -104,7 +104,7 @@ final class ClaudeMonitorTests: XCTestCase {
     func testNumberedPermissionPromptDetectedAsSelection() {
         // Actual permission prompt with numbered options
         let screen = """
-        Claude wants to edit foo.swift
+        Do you want to proceed?
         1. Yes
         2. Yes, allow all
         3. No
@@ -378,14 +378,15 @@ final class ClaudeMonitorTests: XCTestCase {
 
     // MARK: - Loop Detection
 
-    func testLoopDetectionRequiresThreeSnapshots() {
+    func testLoopDetectionRequiresFourSnapshots() {
         let st = SessionMonitorState(sessionId: "test-loop")
-        // Less than 3 snapshots should not detect loop
+        // Less than 4 snapshots should not detect loop
+        st.recordScreenSnapshot("hello world this is a test")
         st.recordScreenSnapshot("hello world this is a test")
         st.recordScreenSnapshot("hello world this is a test")
         XCTAssertFalse(st.detectLoop())
 
-        // Third similar snapshot should trigger loop detection
+        // Fourth similar snapshot should trigger loop detection
         st.recordScreenSnapshot("hello world this is a test")
         XCTAssertTrue(st.detectLoop())
     }

@@ -131,8 +131,10 @@ enum ScreenDetection {
         let lines = screenText.split(separator: "\n").map(String.init)
         let lower = screenText.lowercased()
 
-        // 1. TUI selection footer
+        // 1. TUI selection/permission footer
         let hasSelectionFooter = lower.contains("enter to select") || lower.contains("↑/↓ to navigate")
+            || lower.contains("esc to cancel") || lower.contains("tab to amend")
+            || lower.contains("do you want to proceed")
 
         // 2. Arrow markers (❯/›)
         var hasArrowMarker = false

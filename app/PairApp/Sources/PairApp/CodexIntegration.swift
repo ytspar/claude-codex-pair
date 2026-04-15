@@ -94,19 +94,10 @@ enum CodexIntegration {
             conversationBlock = "\nRECENT CONVERSATION:\n\(conversationSummary)\n"
         }
 
-        var stateHints = ""
-        if screen.state == .selectionMenu || screen.state == .permissionPrompt {
-            stateHints += """
-            \nThis is a selection/permission prompt. Respond with SELECT: <number>.
-            For permission prompts, prefer the most permissive option (usually 2 for "Yes, allow all").
-            """
-        }
-        if screen.state == .askingQuestion {
-            stateHints += "\nClaude is asking you a question. Respond with ANSWER: <your response>."
-        }
-
         let prompt = """
-        You are the human operator for Claude Code. Analyze the current state and decide what to do.
+        You are the human operator sitting at a terminal running Claude Code. \
+        You see the terminal output below. Decide what to do — exactly like a \
+        skilled developer would.
 
         \(stateBlock)
         \(conversationBlock)
@@ -115,14 +106,15 @@ enum CodexIntegration {
         \(lastLines)
         --- END TERMINAL OUTPUT ---
 
-        Respond with exactly ONE line in this format:
-        - APPROVE — Work is correct, let Claude continue
-        - WAIT — Claude is still working, do not intervene
-        - ANSWER: <text> — Answer Claude's question or provide input
-        - SELECT: <number> — Choose option from the menu (for permissions: pick most permissive)
-        - REDIRECT: <instructions> — Claude is off track, give new direction
-        - ESCALATE: <reason> — Risky/unclear situation, flag for human
-        \(stateHints)
+        Look at the terminal and respond with ONE of these:
+        - WAIT — if Claude is still working or thinking, do nothing
+        - APPROVE — if Claude finished successfully and nothing needs doing
+        - SELECT: <number> — if you see a permission/selection menu (› markers, \
+          numbered options like "1. Yes / 2. Yes, allow all / 3. No"), pick the \
+          appropriate option number. For permissions, prefer the most permissive.
+        - ANSWER: <text> — if Claude asked you a question, answer it naturally
+        - REDIRECT: <instructions> — if Claude is going in the wrong direction
+        - ESCALATE: <reason> — if something looks dangerous or you're unsure
 
         You may append extra lines after your decision:
         - LEARN: <observation> — A pattern worth remembering for future reviews.

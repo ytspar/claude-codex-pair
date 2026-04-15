@@ -58,8 +58,19 @@ final class DecisionParsingTests: XCTestCase {
         XCTAssertEqual(text, "tests keep failing, need human review")
     }
 
-    func testBareNumber() {
+    func testBareNumberIsUnknown() {
+        // Bare numbers must NOT auto-convert to SELECT — they caused false injections
+        // when the reviewer hallucinated selection prompts. Reviewer must use "SELECT: N".
         let decision = CodexDecision.parse("2")
+        guard case .unknown(let text) = decision else {
+            XCTFail("Expected .unknown, got \(decision)")
+            return
+        }
+        XCTAssertEqual(text, "2")
+    }
+
+    func testSelectWithPrefix() {
+        let decision = CodexDecision.parse("SELECT: 2")
         guard case .select(let n) = decision else {
             XCTFail("Expected .select, got \(decision)")
             return
