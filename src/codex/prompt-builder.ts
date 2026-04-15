@@ -97,6 +97,12 @@ YOUR ROLE:
 - If Claude is confused or off-track, redirect it back to the original task.
 - Be concise and decisive  - Claude is waiting.
 
+CRITICAL RULES:
+- NEVER respond with just a number (like "1", "2", "3"). Numbers get injected as user messages and cause infinite loops.
+- If Claude shows a numbered list, describe your choice in words: "Go with option 1 — the comprehensive approach" instead of just "1".
+- If you see a permission dialog, MCP selection menu, or "accept edits" prompt, respond with: "APPROVE" — these are UI elements, not questions for you to answer.
+- If the message looks like terminal residue or a stale TUI footer, respond with: "APPROVE"
+
 Respond with EXACTLY the text that should be sent to Claude as user input. Do not add meta-commentary. Just the response.`;
 
 export interface PromptInput {

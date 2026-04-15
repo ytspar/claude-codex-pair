@@ -118,6 +118,38 @@ async function main(): Promise<void> {
 			.map((e) => `[Cycle ${e.cycle}] ${e.codexResponse}`)
 			.join("\n\n---\n\n");
 
+		// Loop detection: if last 3 decisions are all FEEDBACK with similar content, break the loop
+		const recentFeedback = previousEntries.filter((e) => e.codexDecision === "FEEDBACK").slice(-3);
+		if (recentFeedback.length >= 3) {
+			const responses = recentFeedback.map((e) => normalize(e.codexResponse));
+			const allSimilar = responses.every((r) => similarity(r, responses[0]) > 0.7);
+			if (allSimilar) {
+				debugLog("LOOP_DETECTED", { cycle, similarFeedbackCount: recentFeedback.length });
+				updateState(sessionId, {
+					cycle,
+					status: "approved",
+					lastDecision: "APPROVE",
+					lastResponse: "Loop detected: same feedback repeated 3+ times — auto-approving to break cycle",
+				});
+				exit(approve("Loop detected: same feedback repeated 3+ times — auto-approving"));
+				return;
+			}
+		}
+
+		// Loop detection: if Claude's response is just a number (injected from previous respond-mode),
+		// this is loop residue — approve immediately
+		if (lastMessage && /^\s*\d+\s*$/.test(lastMessage.trim())) {
+			debugLog("NUMERIC_LOOP", { cycle, lastMessage: lastMessage.trim() });
+			updateState(sessionId, {
+				cycle,
+				status: "approved",
+				lastDecision: "APPROVE",
+				lastResponse: "Numeric input detected (loop residue) — auto-approving",
+			});
+			exit(approve("Numeric loop residue detected — auto-approving"));
+			return;
+		}
+
 		// If Claude is asking a question, use the respond template (direct answer, no verdict parsing)
 		// Otherwise use the review template (completion check with APPROVE/FEEDBACK verdict)
 		let prompt: string;
@@ -223,21 +255,48 @@ function stripVerdictLine(text: string): string {
 /**
  * Detect if Claude's last message is asking a question rather than reporting completion.
  * Questions get the respond template (direct answer); non-questions get the review template.
+ *
+ * IMPORTANT: Permission dialogs, MCP selection menus, and tool approval prompts
+ * are NOT questions for Codex to answer — they are Claude Code UI elements.
+ * Answering them with "2" or "yes" injects text as a user message, causing loops.
  */
 function looksLikeQuestion(message: string): boolean {
 	const lower = message.toLowerCase();
-	// Explicit question patterns
+
+	// EXCLUSIONS — never treat these as questions (they cause loop injection)
+	// Permission dialogs and tool approval prompts
+	if (/\b(allow|deny|permission)\b.*\b(tool|command|bash|edit|write)\b/i.test(message)) return false;
+	// MCP dialog or selection menu residue
+	if (/mcp dialog dismissed/i.test(message)) return false;
+	// Claude reporting what it did (not asking)
+	if (/^(i |i've |i'll |here |done|the |this |that |let me )/i.test(message.trim())) return false;
+	// Messages that are mostly tool output or code blocks
+	if ((message.match(/```/g) || []).length >= 2) return false;
+	// Short numeric messages (loop residue from previous injections)
+	if (/^\s*\d+\s*$/.test(message.trim())) return false;
+
+	// Explicit question patterns — only match if Claude is genuinely asking the USER
 	if (/\?\s*$/.test(message.trim())) return true;
 	if (/\bshould (i|we)\b/.test(lower)) return true;
 	if (/\bwould you like\b/.test(lower)) return true;
 	if (/\bdo you want\b/.test(lower)) return true;
-	if (/\bcan (i|we)\b/.test(lower)) return true;
-	if (/\bpermission to\b/.test(lower)) return true;
 	if (/\bplease (confirm|choose|select|decide)\b/.test(lower)) return true;
 	if (/\bwhich (option|approach|one)\b/.test(lower)) return true;
-	// Numbered option lists (Claude presenting choices)
-	if (/^\s*[1-3][.)]\s/m.test(message) && /\b(option|choice|approach)\b/i.test(message)) return true;
 	return false;
+}
+
+/** Normalize text for similarity comparison: lowercase, collapse whitespace, strip punctuation. */
+function normalize(text: string): string {
+	return text.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+}
+
+/** Simple word-overlap similarity (Jaccard index). Returns 0-1. */
+function similarity(a: string, b: string): number {
+	const setA = new Set(a.split(" "));
+	const setB = new Set(b.split(" "));
+	const intersection = new Set([...setA].filter((x) => setB.has(x)));
+	const union = new Set([...setA, ...setB]);
+	return union.size === 0 ? 1 : intersection.size / union.size;
 }
 
 main().catch((err) => {
