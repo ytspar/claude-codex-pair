@@ -445,20 +445,52 @@ class CodexLedger {
         }
     }
 
-    /// Auto-queue pending improvements into the task queue.
+    /// Auto-queue ONE pending improvement into the task queue.
+    /// Only queues if the task queue has no pending IMPROVE tasks already.
     /// Called periodically alongside strategy updates.
     func queuePendingImprovements() {
         let pending = pendingImprovements()
-        guard !pending.isEmpty else { return }
+        guard let next = pending.first else { return }
 
-        for entry in pending {
-            let prompt = "IMPROVE: \(entry.suggestion)\n\nThe reviewer flagged this as a recurring pattern that could be automated or improved. Investigate and implement the improvement — this could be a new Claude Code skill (.claude/skills/), a CLI script (scripts/), a pre-commit hook, a CLAUDE.md rule, or a code change. Commit your changes when done."
-            DispatchQueue.main.async {
-                TaskQueue.shared.addTask(prompt: prompt)
-            }
+        // Don't pile up — only queue if no IMPROVE tasks are already pending
+        let hasExistingImprove = TaskQueue.shared.items.contains {
+            ($0.status == .pending || $0.status == .active) && $0.prompt.hasPrefix("IMPROVE:")
         }
-        markImprovementsQueued()
-        PairLog.info("Queued \(pending.count) improvement task(s)")
+        guard !hasExistingImprove else { return }
+
+        let prompt = "IMPROVE: \(next.suggestion)\n\nThe reviewer flagged this as a recurring pattern that could be automated or improved. Investigate and implement the improvement — this could be a new Claude Code skill (.claude/skills/), a CLI script (scripts/), a pre-commit hook, a CLAUDE.md rule, or a code change. Commit your changes when done."
+        DispatchQueue.main.async {
+            TaskQueue.shared.addTask(prompt: prompt)
+        }
+        // Only mark this one as queued
+        markSingleImprovementQueued(timestamp: next.timestamp)
+        PairLog.info("Queued 1 improvement task (remaining: \(pending.count - 1))")
+    }
+
+    /// Mark a single improvement as queued by timestamp.
+    private func markSingleImprovementQueued(timestamp: String) {
+        Self.fileLock.withLock {
+            guard let content = try? String(contentsOfFile: improvementsPath, encoding: .utf8) else { return }
+            let decoder = JSONDecoder()
+            let encoder = JSONEncoder()
+            var found = false
+            let lines = content.split(separator: "\n").map { line -> String in
+                guard !found,
+                      let data = line.data(using: .utf8),
+                      let entry = try? decoder.decode(ImprovementEntry.self, from: data),
+                      entry.timestamp == timestamp, !entry.queued else {
+                    return String(line)
+                }
+                found = true
+                let updated = ImprovementEntry(timestamp: entry.timestamp, suggestion: entry.suggestion, queued: true)
+                if let data = try? encoder.encode(updated), let str = String(data: data, encoding: .utf8) {
+                    return str
+                }
+                return String(line)
+            }
+            try? lines.joined(separator: "\n").appending("\n")
+                .write(toFile: improvementsPath, atomically: true, encoding: .utf8)
+        }
     }
 
     // MARK: - Helpers

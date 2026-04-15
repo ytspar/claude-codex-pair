@@ -512,16 +512,18 @@ class ClaudeMonitor: ObservableObject {
         guard atPrompt && promptEmpty else { return false }
 
         // If task queue is running, complete the active task and stage the next one.
-        // This handles the case where Claude finished work and is sitting at the prompt.
+        // Only mark complete if Claude actually did work (hadInteraction or screen changes).
+        // This prevents rapid-fire task completion when the prompt is momentarily empty.
         if TaskQueue.shared.isRunning && !st.hasQueuedInjections {
-            if let stale = TaskQueue.shared.activeTask {
+            if let stale = TaskQueue.shared.activeTask, st.hadInteraction {
                 PairLog.info("[\(session.id)] Active task at prompt, marking completed: \(stale.title)")
                 TaskQueue.shared.markCompleted(id: stale.id)
-            }
-            if let nextTask = TaskQueue.shared.nextPending() {
-                TaskQueue.shared.markActive(id: nextTask.id)
-                st.enqueue(nextTask.prompt, source: .taskQueue, taskId: nextTask.id)
-                PairLog.info("[\(session.id)] Task queued for injection: \(nextTask.title)")
+                st.hadInteraction = false
+                if let nextTask = TaskQueue.shared.nextPending() {
+                    TaskQueue.shared.markActive(id: nextTask.id)
+                    st.enqueue(nextTask.prompt, source: .taskQueue, taskId: nextTask.id)
+                    PairLog.info("[\(session.id)] Task queued for injection: \(nextTask.title)")
+                }
             }
         }
 
