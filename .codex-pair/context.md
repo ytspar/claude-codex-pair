@@ -1018,3 +1018,222 @@ When Claude is idle after passing tests and the only issue is a non-blocking war
 
 ## 2026-04-16 09:25
 When Claude offers a numbered file list for inspection, answer by naming the most relevant file directly to keep the investigation moving.
+
+## 2026-04-16 09:25
+When Claude finishes a requested file inspection and returns to an idle prompt with uncommitted work, redirect immediately to a concrete checkpoint commit and require the hash back.
+
+## 2026-04-16 09:25
+When Claude is idle at a blank prompt and there is still uncommitted work, require an immediate checkpoint commit plus the returned commit hash.
+
+## 2026-04-16 09:26
+When Claude finishes a requested file inspection and returns to an idle prompt with uncommitted work, redirect immediately to a concrete checkpoint commit and require the hash back.
+
+## 2026-04-16 09:26
+When Claude finishes summarizing a requested file and asks what to do next at an idle prompt, redirect immediately to a concrete checkpoint commit and require the hash back.
+
+## 2026-04-16 09:26
+When Claude finishes summarizing a requested file and asks what to do next at an idle prompt with uncommitted work, redirect immediately to a concrete checkpoint commit and require the hash back.
+
+## 2026-04-16 09:26
+When Claude completes a simple inspection/counting task and returns idle while work is still uncommitted, immediately redirect to a concrete checkpoint commit and require the hash.
+
+## 2026-04-16 09:26
+When Claude finishes summarizing a requested file and returns to an idle prompt with uncommitted work, redirect immediately to a concrete checkpoint commit and require the hash back.
+
+## 2026-04-16 09:27
+When Claude finishes summarizing a file and asks what to do next while work is still uncommitted, interrupt the inspection loop and require an immediate checkpoint commit with the returned hash.
+
+## 2026-04-16 09:27
+When Claude finishes summarizing a file and asks what to do next while work is still uncommitted, interrupt the inspection loop and require an immediate checkpoint commit with the returned hash.
+
+## 2026-04-16 09:27
+When Claude finishes summarizing a file and asks what to do next at an idle prompt while work is still uncommitted, interrupt the inspection loop and require an immediate checkpoint commit with the returned hash.
+
+## 2026-04-16 09:28
+When Claude finishes summarizing a file and asks what to do next at an idle prompt while work is still uncommitted, interrupt the inspection loop and require an immediate checkpoint commit with the returned hash.
+
+## 2026-04-16 09:28
+When Claude finishes summarizing a file and returns to an idle prompt while changes are still uncommitted, break the inspection loop by requiring an immediate checkpoint commit and the resulting hash.
+
+## 2026-04-16 09:28
+When Claude answers a simple explicit terminal question correctly and returns idle, approve instead of redirecting, even if unrelated uncommitted work exists.
+
+## 2026-04-16 09:28
+When Claude finishes a file summary and returns to “What would you like to do with this file?” while changes are still uncommitted, break the loop by requiring an immediate checkpoint commit and the resulting hash.
+
+## 2026-04-16 09:29
+When Claude finishes summarizing a file and asks what to do next while changes are still uncommitted, interrupt the inspection loop and require an immediate checkpoint commit with the resulting hash.
+
+## 2026-04-16 09:29
+When Claude finishes summarizing a file and returns to “What would you like to do with this file?” while the worktree is dirty, interrupt the inspection loop and require an immediate checkpoint commit with the resulting hash.
+
+## 2026-04-16 09:29
+When Claude finishes a file inventory/inspection and returns to a blank idle prompt while changes remain uncommitted, interrupt the loop and require a checkpoint commit plus hash.
+
+## 2026-04-16 09:29
+When Claude returns to “What would you like to do with this file?” after a summary and the worktree is dirty, answer the question with a concrete checkpoint-commit instruction instead of continuing the inspection loop.
+
+## 2026-04-16 09:30
+When Claude returns to “What would you like to do with this file?” after a file summary and the worktree is dirty, break the loop with a concrete checkpoint-commit instruction instead of continuing inspection.
+
+## 2026-04-16 20:17
+When Claude returns to “What would you like to do with this file?” after a summary and the worktree is dirty, answer that question with a concrete checkpoint-commit instruction instead of continuing the inspection loop.
+
+## 2026-04-16 20:17
+When Claude returns to “What would you like to do with this file?” after a summary and the worktree is dirty, answer with a concrete checkpoint-commit action instead of continuing inspection.
+
+## 2026-04-16 20:17
+Repeating the same checkpoint-commit redirect at an idle post-summary prompt is ineffective if the actual bug is that the prompt classifier/router is still letting inspection continue.
+
+## 2026-04-16 20:18
+When Claude is back at an idle post-summary question after inspecting the decision enum, the next productive step is to change the routing code that chose inspection again, not to inspect another file or repeat the same redirect.
+
+## 2026-04-16 20:18
+When a prompt loop survives multiple manual redirects, the next productive move is to patch the routing code that keeps re-entering the loop, not to inspect more files or repeat the same instruction.
+
+## 2026-04-16 20:19
+When Claude returns to a post-summary “What would you like to do with this file?” prompt after multiple failed manual redirects, the productive move is to patch the router producing that prompt, not to inspect another file or repeat the same instruction.
+
+## 2026-04-16 20:19
+When Claude is at a post-summary idle question and prior commit redirects have failed, the productive move is to patch the router/integration code that misclassified the prompt, not to inspect more files or repeat the same redirect.
+
+## 2026-04-16 20:19
+When Claude lands on a post-summary “What would you like to do with this file?” prompt after several redirects, the productive move is to patch the prompt-routing path that misclassified it, not to inspect more files.
+
+## 2026-04-16 20:20
+When Claude asks “What would you like to do with this file?” after a summary, answering with the next concrete implementation task is more effective than re-entering file inspection or repeating a generic redirect.
+
+## 2026-04-16 20:20
+When Claude returns to a post-summary “What would you like to do with this file?” prompt after repeated redirects, the productive move is to patch the routing path that classified it, not to inspect another file.
+
+## 2026-04-16 20:21
+When Claude asks “What would you like to do with this file?” immediately after a file summary and the worktree is dirty, the productive next step is to patch the router that re-entered inspection, not to inspect another file.
+
+## 2026-04-16 20:22
+When Claude asks “What would you like to do with this file?” immediately after a summary and the worktree is dirty, the productive next step is to patch the router that re-entered inspection, not to inspect another file.
+
+## 2026-04-16 20:23
+When Claude asks what to do next right after summarizing a file, the productive move is to assign the concrete implementation task rather than continue browsing.
+
+## 2026-04-16 20:23
+When Claude finishes summarizing a file and immediately asks what to do next, the productive move is to assign the concrete code change in the routing path, not discuss the inspected file further.
+
+## 2026-04-16 20:23
+When Claude finishes summarizing a file and immediately asks what to do next, the productive move is to patch the routing path that re-entered inspection, not to keep browsing files.
+
+## 2026-04-16 20:24
+When Claude finishes summarizing a file and immediately asks what to do next, the productive move is to patch the routing path that re-entered inspection, not to keep browsing files.
+
+## 2026-04-16 20:24
+When Claude asks what to do next immediately after summarizing a file, answer with the concrete implementation task rather than discussing the file further.
+
+## 2026-04-16 20:25
+When Claude asks what to do next immediately after summarizing a file, the right move is to assign the concrete routing fix rather than continue file-by-file inspection.
+
+## 2026-04-16 20:26
+When Claude returns to “What would you like to do with this file?” after a summary and there is already substantial uncommitted work, the highest-leverage response is to end inspection and force a checkpoint commit.
+
+## 2026-04-16 20:28
+When Claude asks what to do next immediately after summarizing a file and there is already uncommitted work, the right move is to end inspection and force a checkpoint commit.
+
+## 2026-04-16 20:28
+When Claude finishes summarizing a file and immediately asks an open-ended follow-up, treat it as a loop trigger and force a concrete shell action, not more discussion.
+
+## 2026-04-16 20:29
+After a completed file summary, “What would you like to do with this file?” should be treated as an idle-loop prompt, not a real request for more inspection.
+
+## 2026-04-16 20:29
+After a completed file summary, an open-ended “What would you like to do with this file?” should be treated as an idle-loop prompt and answered with a concrete next action.
+
+## 2026-04-16 20:29
+After Claude finishes summarizing a file and asks an open-ended follow-up, treat it as a routing-loop bug to fix, not a real invitation to keep browsing files.
+
+## 2026-04-16 20:30
+After a completed file summary, an open-ended “What would you like to do with this file?” is an idle-loop prompt; the right operator move is to force a concrete shell action.
+
+## 2026-04-16 20:30
+After Claude finishes summarizing a file and asks an open-ended follow-up, treat it as a routing-loop bug to fix, not a real request to inspect more files.
+
+## 2026-04-16 20:31
+When Claude asks an open-ended follow-up immediately after a file summary, answer with the concrete next implementation task instead of redirecting at a higher level.
+
+## 2026-04-16 20:31
+When Claude reaches an idle “what next?” prompt immediately after a file summary, answer with the next implementation target and completion criteria, not another review choice.
+
+## 2026-04-16 20:32
+After a completed file summary, “What would you like to do with this file?” is an idle-loop trigger and should be treated as a routing bug, not a real request for more inspection.
+
+## 2026-04-16 20:32
+When Claude ends a file summary with “What would you like to do with this file?”, answer with the next implementation target and completion criteria, not another review choice.
+
+## 2026-04-16 20:32
+After a completed file summary, “What would you like to do with this file?” is an idle-loop prompt; answer with a concrete shell action, not more inspection.
+
+## 2026-04-16 20:33
+After a completed file summary, the follow-up “What would you like to do with this file?” is an idle-loop prompt and should trigger execution, not more inspection.
+
+## 2026-04-16 20:33
+After Claude finishes summarizing a file and asks “What would you like to do with this file?”, treat it as an idle-loop prompt and force a concrete execution step.
+
+## 2026-04-16 20:34
+After a file summary ends with “What would you like to do with this file?”, the right move is a concrete next action, not another inspection cycle.
+
+## 2026-04-16 20:34
+When Claude falls into a post-summary “what next?” loop, picking the implementation file directly is more likely to break the cycle than repeating higher-level commit instructions.
+
+## 2026-04-16 20:35
+After Claude summarizes a file and asks “What would you like to do with this file?”, treat it as a routing-loop bug to fix, not a real request for more inspection.
+
+## 2026-04-16 20:35
+After a file summary ends with “What would you like to do with this file?”, answer with the concrete implementation target and completion criteria, not another inspection choice.
+
+## 2026-04-16 20:36
+When Claude lands on a post-summary “What would you like to do with this file?” prompt, send it straight to the concrete implementation file and required completion steps.
+
+## 2026-04-16 20:36
+After a file summary ends with “What would you like to do with this file?”, the best intervention is to point Claude at the concrete implementation file and required completion steps, not another inspection choice.
+
+## 2026-04-16 20:36
+After Claude summarizes a file and asks “What would you like to do with this file?”, treat it as a routing-loop bug to fix, not a real request for more inspection.
+
+## 2026-04-16 20:37
+After a completed file summary followed by “What would you like to do with this file?”, the right move is to force a concrete execution step, usually a checkpoint commit, not more inspection.
+
+## 2026-04-16 20:37
+After Claude summarizes a file and asks “What would you like to do with this file?”, treat it as a routing-loop bug to fix, not a genuine request for more inspection.
+
+## 2026-04-16 20:38
+After Claude summarizes a file and asks “What would you like to do with this file?”, treat it as an idle-loop trigger and force a concrete execution step.
+
+## 2026-04-16 20:38
+When Claude ends a file summary with “What would you like to do with this file?”, answer with the next implementation target and completion criteria, not another inspection choice.
+
+## 2026-04-16 20:38
+After Claude finishes a file summary and asks “What would you like to do with this file?” while work is uncommitted, force a concrete execution step instead of continuing inspection.
+
+## 2026-04-16 20:39
+After a file summary ends with “What would you like to do with this file?” and there is uncommitted work, force a concrete execution step instead of continuing inspection.
+
+## 2026-04-16 20:39
+When Claude ends a file summary with “What would you like to do with this file?” and there is uncommitted work, answer with an immediate execution step, preferably a checkpoint commit.
+
+## 2026-04-16 20:39
+When Claude ends a file summary with `What would you like to do with this file?`, answer with the next implementation target and completion criteria, not another inspection choice.
+
+## 2026-04-16 20:39
+When Claude ends a file summary with `What would you like to do with this file?`, treat it as a routing bug to fix in the reviewer flow, not a real request for more inspection.
+
+## 2026-04-16 20:39
+When Claude asks `What would you like to do with this file?` immediately after a completed summary, treat it as a routing-loop bug and trace the exact prompt source, not another inspection request.
+
+## 2026-04-16 20:40
+When Claude finishes a file summary and asks what to do next while there is uncommitted work, answer with a single concrete execution step and an explicit stop condition.
+
+## 2026-04-16 20:40
+When Claude finishes summarizing a file and asks `What would you like to do with this file?`, treat it as a routing-loop bug to fix, not a real request for more file inspection.
+
+## 2026-04-16 20:41
+When Claude ends a file summary with `What would you like to do with this file?`, treat it as an idle-loop prompt and force a single concrete execution step with an explicit stop condition.
+
+## 2026-04-16 20:43
+When Claude is idle at a blank prompt and there is uncommitted work, the highest-value intervention is a concrete checkpoint commit request with an explicit stop condition and required hash.

@@ -212,6 +212,10 @@ class CodexTestContext {
 /** Run a test with a Codex-leads isolated session. */
 async function runCodexIsolated(name: string, timeoutMs: number, testFn: (ctx: CodexTestContext) => Promise<void>): Promise<void> {
 	const start = Date.now();
+	if (!await assertPairAppAlive()) {
+		fail(name, "PairApp crashed (IPC unreachable)", Date.now() - start);
+		return;
+	}
 	const ctx = new CodexTestContext();
 	try {
 		const ready = await ctx.setup();
@@ -230,15 +234,29 @@ async function runCodexIsolated(name: string, timeoutMs: number, testFn: (ctx: C
 	}
 }
 
+/** Check if PairApp is still alive. Aborts the suite if dead. */
+async function assertPairAppAlive(): Promise<boolean> {
+	try {
+		const resp = await ipc({ action: "list_sessions" });
+		return resp.ok;
+	} catch {
+		log("  ⚠ PairApp is not reachable — aborting remaining tests");
+		return false;
+	}
+}
+
 /** Run a test with its own isolated session. Creates session, runs test fn, cleans up. */
 async function runIsolated(name: string, timeoutMs: number, testFn: (ctx: TestContext) => Promise<void>): Promise<void> {
 	const start = Date.now();
+	if (!await assertPairAppAlive()) {
+		fail(name, "PairApp crashed (IPC unreachable)", Date.now() - start);
+		return;
+	}
 	const ctx = new TestContext();
 	try {
 		const ready = await ctx.setup();
 		if (!ready) { fail(name, "Session setup failed", Date.now() - start); return; }
 
-		// Wrap the test with a timeout
 		await Promise.race([
 			testFn(ctx),
 			new Promise<never>((_, reject) =>
@@ -1117,45 +1135,56 @@ export async function runTestLoop(): Promise<void> {
 
 	await cleanupOldTestSessions();
 
-	// Each test gets its own session — no cascading failures
-	await testInjectAndCodexReview();
-	await testCodexAnswersQuestion();
-	await testAcceptEditsFlow();
-	await testMultiStepPermissions();
+	const tests = [
+		// Core pipeline
+		testInjectAndCodexReview,
+		testCodexAnswersQuestion,
+		testAcceptEditsFlow,
+		testMultiStepPermissions,
+		// Selection behavior
+		testNumberedListNotSelection,
+		testConversationalQuestion,
+		testRealPermissionHandled,
+		// Structured pipeline
+		testStructuredDecisionFormat,
+		testWaitDecisionDoesNothing,
+		testConversationMemoryAccumulates,
+		testScreenParserState,
+		testSelectHandlesPermission,
+		testAnswerInjectsText,
+		testEscalateNotifiesUser,
+		// Safety & resilience
+		testAuthTokenRequired,
+		testDuplicateResponseSkipped,
+		testBackoffIncreasesAfterUnhelpful,
+		testSanityBlocksDangerous,
+		testErrorStateDetected,
+		testLongTaskNoPreemptiveIntervention,
+		testMultiSessionIsolation,
+		// Codex-leads mode
+		testCodexSessionStarts,
+		testCodexAcceptsTypedInput,
+		testCodexScreenDetectionWorks,
+		testCodexLeadsClaudeReviews,
+		testCodexModeUsesTypeInput,
+		testCodexSidebarLabels,
+		// Final
+		testStability,
+		testUserInputProtection,
+	];
 
-	// Selection behavior regression tests
-	await testNumberedListNotSelection();
-	await testConversationalQuestion();
-	await testRealPermissionHandled();
-
-	// Structured pipeline e2e tests
-	await testStructuredDecisionFormat();
-	await testWaitDecisionDoesNothing();
-	await testConversationMemoryAccumulates();
-	await testScreenParserState();
-	await testSelectHandlesPermission();
-	await testAnswerInjectsText();
-	await testEscalateNotifiesUser();
-
-	// Safety & resilience tests
-	await testAuthTokenRequired();
-	await testDuplicateResponseSkipped();
-	await testBackoffIncreasesAfterUnhelpful();
-	await testSanityBlocksDangerous();
-	await testErrorStateDetected();
-	await testLongTaskNoPreemptiveIntervention();
-	await testMultiSessionIsolation();
-
-	// Codex-leads mode e2e tests
-	await testCodexSessionStarts();
-	await testCodexAcceptsTypedInput();
-	await testCodexScreenDetectionWorks();
-	await testCodexLeadsClaudeReviews();
-	await testCodexModeUsesTypeInput();
-	await testCodexSidebarLabels();
-
-	await testStability();
-	await testUserInputProtection();
+	for (const test of tests) {
+		// Abort remaining tests if PairApp crashed
+		if (!await assertPairAppAlive()) {
+			const remaining = tests.length - tests.indexOf(test);
+			log(`  ⚠ PairApp crashed — skipping ${remaining} remaining tests`);
+			for (let i = tests.indexOf(test); i < tests.length; i++) {
+				fail(tests[i].name || `test-${i}`, "PairApp crashed", 0);
+			}
+			break;
+		}
+		await test();
+	}
 
 	// Summary
 	const passed = results.filter(r => r.passed).length;
