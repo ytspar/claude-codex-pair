@@ -523,6 +523,7 @@ class ClaudeMonitor: ObservableObject {
         // This prevents rapid-fire task completion when the prompt is momentarily empty.
         if TaskQueue.shared.isRunning && !st.hasQueuedInjections {
             if let stale = TaskQueue.shared.activeTask, st.hadInteraction {
+                // Previous task completed — mark done and pick up the next one
                 PairLog.info("[\(session.id)] Active task at prompt, marking completed: \(stale.title)")
                 TaskQueue.shared.markCompleted(id: stale.id)
                 st.hadInteraction = false
@@ -531,6 +532,11 @@ class ClaudeMonitor: ObservableObject {
                     st.enqueue(nextTask.prompt, source: .taskQueue, taskId: nextTask.id)
                     PairLog.info("[\(session.id)] Task queued for injection: \(nextTask.title)")
                 }
+            } else if TaskQueue.shared.activeTask == nil, let nextTask = TaskQueue.shared.nextPending() {
+                // No active task yet (queue just started) — pick up the first pending task
+                TaskQueue.shared.markActive(id: nextTask.id)
+                st.enqueue(nextTask.prompt, source: .taskQueue, taskId: nextTask.id)
+                PairLog.info("[\(session.id)] First task queued for injection: \(nextTask.title)")
             }
         }
 
