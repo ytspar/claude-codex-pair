@@ -937,3 +937,84 @@ When Claude follows a checkpoint-commit redirect, stages the intended project fi
 
 ## 2026-04-16 08:42
 When Claude is back at an idle prompt with uncommitted work and no active task, redirect it to make the checkpoint commit rather than approving.
+
+## 2026-04-16 08:43
+When Claude is back at an idle prompt with no active task, prefer redirecting it to make a checkpoint commit instead of approving.
+
+## 2026-04-16 08:57
+When Claude is back at an idle prompt with passing tests and only a non-blocking warning, prefer redirecting it to make a checkpoint commit instead of approving.
+
+## 2026-04-16 08:57
+When Claude correctly answers a file-search request by listing matching files and presenting a follow-up selection menu, respond by selecting the most relevant file rather than redirecting.
+
+## 2026-04-16 08:59
+When Claude is back at an idle prompt after completing a file-search/listing task and there is uncommitted work, redirect it to make a checkpoint commit instead of approving.
+
+## 2026-04-16 09:00
+When Claude correctly answers the user's terminal prompt and returns to an idle prompt with uncommitted work, redirect it to make a checkpoint commit instead of approving.
+
+## 2026-04-16 09:01
+When Claude correctly answers a terminal prompt and returns to an idle prompt with uncommitted work, redirect it to make a checkpoint commit instead of approving.
+
+## 2026-04-16 09:01
+When Claude correctly answers the user's terminal prompt and returns to an idle prompt with uncommitted work, redirect it to make a checkpoint commit instead of approving.
+
+## 2026-04-16 09:02
+When Claude asks a follow-up question through a module selection menu while scoping a new test, select the most relevant module to keep it moving instead of redirecting.
+
+## 2026-04-16 09:02
+When Claude presents a module selection menu while scoping a new test, select the most relevant module to keep the flow moving rather than redirecting.
+
+## 2026-04-16 09:03
+When Claude narrows a new response-parser test via a behavior selection menu, choose the first concrete parser behavior to keep test scoping moving.
+
+## 2026-04-16 09:03
+When Claude narrows a new response-parser test via a behavior selection menu, select the first concrete parser behavior to keep test scoping moving.
+
+## 2026-04-16 09:03
+When Claude proposes a sensible test edit and the terminal shows an edit-approval menu, choose the most permissive allow-all option to avoid repeated interruptions.
+
+## 2026-04-16 09:03
+When Claude proposes a sensible code edit and the terminal shows an edit-approval menu, choose the session-wide allow-all option to avoid repeated interruptions.
+
+## 2026-04-16 09:04
+When Claude correctly answers the user's terminal prompt and returns to an idle prompt with uncommitted work, redirect it to make a checkpoint commit instead of approving.
+
+## 2026-04-16 09:04
+When Claude correctly answers a terminal prompt and returns to an idle prompt with uncommitted work, redirect it to make a checkpoint commit instead of approving.
+
+## 2026-04-16 09:05
+When Claude correctly executes a simple terminal command and returns to an idle prompt with uncommitted work, redirect it to make a checkpoint commit instead of approving.
+
+## 2026-04-16 09:05
+When Claude correctly executes a simple terminal command and returns to an idle prompt with uncommitted work, redirect it to make a checkpoint commit instead of approving.
+
+## 2026-04-16 09:06
+When Claude correctly executes a simple terminal command and returns to an idle prompt with uncommitted work, redirect it to make a checkpoint commit instead of approving.
+
+## 2026-04-16 09:06
+When Claude returns to an idle prompt after a trivial command and there is uncommitted work, redirect it to create a checkpoint commit and report the hash.
+
+## 2026-04-16 09:06
+When Claude returns to an idle prompt after a trivial command and there is uncommitted work, redirect it to create a checkpoint commit and report the hash.
+
+## 2026-04-16 09:06
+When Claude is idle after a trivial command and recent commit redirects have looped, break the loop with explicit step-by-step commit instructions and require either a commit hash or a concrete blocker.
+
+## 2026-04-16 09:06
+When Claude returns to an idle prompt after a trivial command and there is uncommitted work, require either a checkpoint commit hash or the concrete blocker.
+
+## 2026-04-16 09:06
+When Claude returns to an idle prompt after a trivial command and commit redirects have looped, give an exact commit message and require either the commit hash or the precise blocker.
+
+## 2026-04-16 09:07
+When Claude is back at an idle prompt after a trivial command and there is uncommitted work, force a concrete checkpoint workflow and require either the commit hash or the exact blocker.
+
+## 2026-04-16 09:08
+When REDIRECT loops 5+ times on commit instructions, switch to ANSWER with the exact shell command and require the commit hash back.
+
+## 2026-04-16 09:24
+When Claude is idle after passing tests and the only issue is a non-blocking warning, require an immediate checkpoint commit and a returned commit hash.
+
+## 2026-04-16 09:25
+When Claude offers a numbered file list for inspection, answer by naming the most relevant file directly to keep the investigation moving.

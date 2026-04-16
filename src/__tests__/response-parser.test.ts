@@ -39,4 +39,19 @@ describe("parseCodexResponse", () => {
 		expect(result.decision).toBe("CONTEXT");
 		expect(result.response).toContain("missing");
 	});
+
+	it("parses lowercase 'approve' verdict", () => {
+		const result = parseCodexResponse("approve\nLooks good to me.");
+		expect(result.decision).toBe("APPROVE");
+	});
+
+	it("parses mixed-case 'Feedback' verdict", () => {
+		const result = parseCodexResponse("Feedback\n- Fix the typo on line 12");
+		expect(result.decision).toBe("FEEDBACK");
+	});
+
+	it("parses mixed-case 'context' verdict", () => {
+		const result = parseCodexResponse("CoNtExT\nPlease share the config file.");
+		expect(result.decision).toBe("CONTEXT");
+	});
 });
