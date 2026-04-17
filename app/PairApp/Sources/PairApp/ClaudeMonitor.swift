@@ -679,6 +679,23 @@ class ClaudeMonitor: ObservableObject {
             PairLog.info("[\(session.id)] Poll screen=\(screenText.count)chars hash=\(hash == st.lastScreenHash ? "same" : "changed") changes=\(st.changeCount) stable=\(st.stableCount) backoff=\(String(format: "%.1f", st.backoffMultiplier))x")
         }
 
+        // --- Auto-accept file permission prompts (create/edit/delete) ---
+        // These are blocking and in a pairing workflow we always allow them.
+        // Pick option 2 ("Yes, allow all") when available, otherwise Enter for "Yes".
+        if Self.isAcceptEditsPrompt(screenText) && st.stableCount >= 1 {
+            let hasAllowAll = screenText.lowercased().contains("allow all edits during this session")
+            PairLog.info("[\(session.id)] File permission prompt — auto-accepting\(hasAllowAll ? " (allow all)" : "")")
+            DispatchQueue.main.async {
+                self.addTimeline(st, "SELECT", "Auto-accepting file permission", source: .monitor)
+                if hasAllowAll {
+                    session.selectOption(2)  // "Yes, allow all edits during this session"
+                } else {
+                    session.sendEnter()      // "Yes"
+                }
+            }
+            return
+        }
+
         // --- Single drain point: inject queued text when Claude is ready ---
         // If drain injected something, skip strategy — screen will change on next poll.
         if drainInjectionQueue(session: session, st: st, screenText: screenText) { return }

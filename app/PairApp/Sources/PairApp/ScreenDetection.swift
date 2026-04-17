@@ -93,6 +93,9 @@ enum ScreenDetection {
             || lower.contains("allow claude to edit")
             || lower.contains("allow edit to")
             || lower.contains("wants to edit")
+            || lower.contains("do you want to create")
+            || lower.contains("do you want to delete")
+            || lower.contains("allow all edits during this session")
             || (lower.contains("edit") && lower.contains("allow") && lower.contains("deny"))
     }
 
@@ -191,6 +194,89 @@ enum ScreenDetection {
             return true
         }
         return false
+    }
+
+    /// Detect when Claude just finished summarizing/inspecting a file and is asking
+    /// an open-ended follow-up like "What would you like to do with this file?" or
+    /// "What would you like to work on next?". This is the idle-loop trigger that
+    /// should be intercepted when there's uncommitted work.
+    static func isIdleAfterSummary(_ screenText: String) -> Bool {
+        let lines = screenText.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+        guard let promptIdx = lines.lastIndex(where: { $0.hasPrefix("❯") || $0 == ">" || $0.hasSuffix("> ") }) else {
+            return false
+        }
+
+        // Look at the last few non-empty lines before the prompt
+        let above = lines[..<promptIdx].suffix(8).filter { !$0.isEmpty }
+        guard let lastAbove = above.last else { return false }
+        let lower = lastAbove.lowercased()
+
+        // Open-ended follow-up patterns that signal an idle inspection loop
+        let idlePatterns = [
+            "what would you like to do",
+            "what would you like to work on",
+            "what should i do next",
+            "what else would you like",
+            "would you like me to",
+            "shall i",
+            "anything else",
+            "what next",
+            "is there anything else",
+            "would you like to explore",
+            "want me to look at",
+            "should i look at",
+            "want me to review",
+            "should i review",
+        ]
+
+        let isIdleQuestion = idlePatterns.contains { lower.contains($0) }
+        guard isIdleQuestion else { return false }
+
+        // Confirm this follows a summary/inspection by checking for file-related content
+        // in the preceding lines (file names, line counts, function listings, etc.)
+        let context = above.prefix(7).joined(separator: " ").lowercased()
+        let summarySignals = ["file", "lines", "function", "class", "struct", "module",
+                              "contains", "defines", "implements", "exports", "import",
+                              "summary", "overview", "here's", "here is", ".swift", ".ts",
+                              ".js", ".py", ".rs", ".go", ".md", ".json"]
+        let hasSummaryContext = summarySignals.contains { context.contains($0) }
+
+        // If the open-ended question is present, treat it as idle even without summary signals —
+        // the question pattern itself is strong enough when the prompt is empty
+        return isIdleQuestion && (hasSummaryContext || lower.hasSuffix("?"))
+    }
+
+    /// Detect if Claude's last visible activity was read-only file inspection (Read, Glob, Grep)
+    /// without any recent writes/edits. Combined with uncommitted work detection, this signals
+    /// an idle-inspection loop that should be redirected to a checkpoint commit.
+    static func isIdleAfterInspection(_ screenText: String) -> Bool {
+        let readOnlyTools = ["Read(", "Glob(", "Grep("]
+        let writeTools = ["Edit(", "Write(", "NotebookEdit("]
+        let lines = screenText.split(separator: "\n").map(String.init)
+
+        var lastReadIdx = -1
+        var lastWriteIdx = -1
+
+        for (i, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            for tool in readOnlyTools where trimmed.contains(tool) {
+                lastReadIdx = i
+            }
+            for tool in writeTools where trimmed.contains(tool) {
+                lastWriteIdx = i
+            }
+        }
+
+        // Last tool was read-only and came after any writes (or no writes at all)
+        return lastReadIdx > lastWriteIdx && lastReadIdx >= 0
+    }
+
+    /// Combined idle-prompt detection: checks both open-ended question patterns AND
+    /// read-only tool usage to identify idle-inspection loops.
+    /// Returns true if Claude appears to be in an inspection loop at an empty prompt.
+    static func isIdleInspectionLoop(_ screenText: String) -> Bool {
+        // Either pattern is sufficient to trigger
+        return isIdleAfterSummary(screenText) || isIdleAfterInspection(screenText)
     }
 
     /// Detect when Claude's output (above the ❯ prompt) ends with a question
