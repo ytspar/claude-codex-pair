@@ -230,6 +230,9 @@ async function runCodexIsolated(name: string, timeoutMs: number, testFn: (ctx: C
 	} catch (e) {
 		fail(name, `${e}`, Date.now() - start);
 	} finally {
+		// Brief pause before teardown to let in-flight Codex reviews complete
+		// and log their results under this session's ID.
+		await sleep(2000);
 		await ctx.teardown();
 	}
 }
@@ -299,9 +302,10 @@ async function testInjectAndCodexReview() {
 		await ctx.waitForPrompt();
 		pass("Claude runs tests", `Completed`, Date.now() - start);
 
-		// Poll for Codex review (may take time for stability detection to trigger)
+		// Poll for Codex review — Codex calls can take 15-30s and the review
+		// may not trigger until Claude is stable for 3+ seconds after completing.
 		let codexLogs: string[] = [];
-		for (let i = 0; i < 12; i++) {
+		for (let i = 0; i < 18; i++) {
 			await sleep(5000);
 			codexLogs = recentLogs("Codex (", logBefore);
 			if (codexLogs.length > 0) break;
@@ -310,7 +314,7 @@ async function testInjectAndCodexReview() {
 			const last = codexLogs[codexLogs.length - 1];
 			pass("Codex review", `Codex responded: ${last.substring(last.indexOf("Codex (")).substring(0, 80)}`, Date.now() - start);
 		} else {
-			fail("Codex review", "No Codex response after 60s", Date.now() - start);
+			fail("Codex review", "No Codex response after 90s", Date.now() - start);
 		}
 	});
 }
@@ -560,7 +564,7 @@ async function testStructuredDecisionFormat() {
 		);
 
 		if (codexLogs.length === 0) {
-			fail("Codex uses structured decisions", "No Codex reviews within 60s", Date.now() - start);
+			fail("Codex uses structured decisions", "No Codex reviews within 60s — monitor may not have triggered stability", Date.now() - start);
 		} else if (structured.length > 0) {
 			pass("Codex uses structured decisions", `${structured.length}/${codexLogs.length} structured (${freeform.length} freeform fallback)`, Date.now() - start);
 		} else {
