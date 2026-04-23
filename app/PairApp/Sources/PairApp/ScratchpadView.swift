@@ -13,7 +13,7 @@ struct ScratchpadView: View {
         VStack(spacing: 0) {
             // Top separator
             Rectangle().fill(themeManager.border).frame(height: 1)
-                .padding(.horizontal, 14)
+                .padding(.leading, 14).padding(.trailing, 20)
 
             // Tab bar
             HStack(spacing: 0) {
@@ -21,7 +21,7 @@ struct ScratchpadView: View {
                 tabButton("TERMINAL", tab: .terminal)
                 Spacer()
             }
-            .padding(.horizontal, 14)
+            .padding(.leading, 14).padding(.trailing, 20)
             .padding(.top, 6)
 
             // Content — both tabs share the same height constraints
@@ -36,7 +36,7 @@ struct ScratchpadView: View {
 
             // Separator above footer
             Rectangle().fill(themeManager.border).frame(height: 1)
-                .padding(.horizontal, 14)
+                .padding(.leading, 14).padding(.trailing, 20)
         }
         .background(themeManager.bg)
     }
@@ -125,7 +125,7 @@ struct ScratchpadContentView: View {
 
                 SendButton(isEmpty: text.isEmpty, themeManager: themeManager, action: sendToClaudeAction)
             }
-            .padding(.horizontal, 14)
+            .padding(.leading, 14).padding(.trailing, 20)
             .padding(.bottom, 8)
         }
     }
@@ -254,7 +254,7 @@ struct SendButton: View {
             }
         }
         .foregroundColor(isEmpty ? themeManager.textMuted : themeManager.accent)
-        .padding(.horizontal, 14)
+        .padding(.leading, 14).padding(.trailing, 20)
         .padding(.vertical, 6)
         .background(isEmpty ? Color.clear : (isHovered ? themeManager.accent.opacity(0.1) : Color.clear))
         .overlay(

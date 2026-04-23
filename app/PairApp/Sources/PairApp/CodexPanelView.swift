@@ -27,13 +27,15 @@ struct CodexPanelView: View {
         VStack(alignment: .leading, spacing: 0) {
             // ── Status strip ──
             statusStrip
-                .padding(.horizontal, 14)
+                .padding(.leading, 14)
+                .padding(.trailing, 20)
                 .padding(.top, 10)
                 .padding(.bottom, 8)
 
             // ── Thin rule ──
             Rectangle().fill(tm.border).frame(height: 1)
-                .padding(.horizontal, 14)
+                .padding(.leading, 14)
+                .padding(.trailing, 20)
 
             // ── Scrollable content ──
             ScrollViewReader { proxy in
@@ -86,7 +88,8 @@ struct CodexPanelView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 14)
+                    .padding(.leading, 14)
+                    .padding(.trailing, 20)
                     .padding(.top, 6)
                 }
                 .onChange(of: focusedIndex) { idx in
@@ -304,7 +307,8 @@ struct CodexPanelView: View {
                     .layoutPriority(1)
             }
         }
-        .padding(.horizontal, 14)
+        .padding(.leading, 14)
+        .padding(.trailing, 20)
         .padding(.vertical, 8)
     }
 

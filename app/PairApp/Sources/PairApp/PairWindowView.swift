@@ -178,11 +178,11 @@ struct BrowseSidebarView: View {
                     .tracking(1.0)
                 Spacer()
             }
-            .padding(.horizontal, 14)
+            .padding(.leading, 14).padding(.trailing, 20)
             .padding(.top, 14)
             .padding(.bottom, 10)
 
-            Rectangle().fill(tm.border).frame(height: 1).padding(.horizontal, 14)
+            Rectangle().fill(tm.border).frame(height: 1).padding(.leading, 14).padding(.trailing, 20)
 
             // Project list
             ScrollView {
@@ -211,7 +211,7 @@ struct BrowseSidebarView: View {
                                         .foregroundColor(tm.textMuted.opacity(0.6))
                                 }
                             }
-                            .padding(.horizontal, 14)
+                            .padding(.leading, 14).padding(.trailing, 20)
                             .padding(.vertical, 8)
                             .contentShape(Rectangle())
                         }
@@ -225,7 +225,7 @@ struct BrowseSidebarView: View {
                         Text("No recent projects")
                             .font(Theme.monoTiny)
                             .foregroundColor(tm.textMuted.opacity(0.5))
-                            .padding(.horizontal, 14)
+                            .padding(.leading, 14).padding(.trailing, 20)
                             .padding(.top, 20)
                     }
                 }
@@ -236,7 +236,7 @@ struct BrowseSidebarView: View {
 
             // Footer
             Rectangle().fill(tm.border).frame(height: 1)
-                .padding(.horizontal, 14)
+                .padding(.leading, 14).padding(.trailing, 20)
             HStack {
                 Text("Click to open")
                     .font(Theme.monoTiny)
@@ -246,7 +246,7 @@ struct BrowseSidebarView: View {
                     .font(Theme.monoTiny)
                     .foregroundColor(tm.textMuted.opacity(0.4))
             }
-            .padding(.horizontal, 14)
+            .padding(.leading, 14).padding(.trailing, 20)
             .padding(.vertical, 8)
         }
         .background(tm.bg)
