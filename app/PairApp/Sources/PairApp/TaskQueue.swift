@@ -31,6 +31,13 @@ class TaskQueue: ObservableObject {
         }
     }
 
+    struct Snapshot {
+        let isRunning: Bool
+        let pendingCount: Int
+        let activeTitle: String?
+        let items: [TaskItem]
+    }
+
     var pendingCount: Int { items.filter { $0.status == .pending }.count }
     var hasPending: Bool { items.contains { $0.status == .pending } }
     var activeTask: TaskItem? { items.first { $0.status == .active } }
@@ -44,19 +51,11 @@ class TaskQueue: ObservableObject {
     }
 
     private var filePath: String {
-        if let dir = projectDir {
-            return "\(dir)/.codex-pair/task-queue.json"
-        }
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return "\(home)/.claude-codex-pair/task-queue.json"
+        Self.queueFilePath(for: projectDir)
     }
 
     private var runningFlagPath: String {
-        if let dir = projectDir {
-            return "\(dir)/.codex-pair/task-queue-running"
-        }
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return "\(home)/.claude-codex-pair/task-queue-running"
+        Self.runningFlagPath(for: projectDir)
     }
 
     private init() {
@@ -80,18 +79,18 @@ class TaskQueue: ObservableObject {
     // Safe to call from any thread.
 
     func addTask(title: String = "", prompt: String) {
-        let displayTitle = title.isEmpty ? String(prompt.prefix(60)) : title
-        // Dedup: skip if a pending/active task with the same title or prompt already exists
-        let isDuplicate = items.contains { item in
-            (item.status == .pending || item.status == .active) &&
-            (item.prompt.prefix(80) == prompt.prefix(80) || (!title.isEmpty && item.title == title))
-        }
-        if isDuplicate {
-            PairLog.info("Task queue dedup: skipping duplicate '\(displayTitle.prefix(50))'")
-            return
-        }
-        PairLog.action("queue", action: "TASK_ADDED", detail: displayTitle)
         onMain {
+            let displayTitle = title.isEmpty ? String(prompt.prefix(60)) : title
+            // Dedup: skip if a pending/active task with the same title or prompt already exists
+            let isDuplicate = self.items.contains { item in
+                (item.status == .pending || item.status == .active) &&
+                (item.prompt.prefix(80) == prompt.prefix(80) || (!title.isEmpty && item.title == title))
+            }
+            if isDuplicate {
+                PairLog.info("Task queue dedup: skipping duplicate '\(displayTitle.prefix(50))'")
+                return
+            }
+            PairLog.action("queue", action: "TASK_ADDED", detail: displayTitle)
             self.items.append(TaskItem(title: title, prompt: prompt))
             self.save()
         }
@@ -133,18 +132,24 @@ class TaskQueue: ObservableObject {
     }
 
     func nextPending() -> TaskItem? {
-        guard isRunning else { return nil }
-        return items.first { $0.status == .pending }
+        onMainValue {
+            guard self.isRunning else { return nil }
+            return self.items.first { $0.status == .pending }
+        }
     }
 
     func start() {
-        PairLog.action("queue", action: "QUEUE_START", detail: "pending=\(pendingCount)")
-        onMain { self.isRunning = true }
+        onMain {
+            PairLog.action("queue", action: "QUEUE_START", detail: "pending=\(self.pendingCount)")
+            self.isRunning = true
+        }
     }
 
     func stop() {
-        PairLog.action("queue", action: "QUEUE_STOP", detail: "pending=\(pendingCount)")
-        onMain { self.isRunning = false }
+        onMain {
+            PairLog.action("queue", action: "QUEUE_STOP", detail: "pending=\(self.pendingCount)")
+            self.isRunning = false
+        }
     }
 
     func markActive(id: UUID) {
@@ -189,6 +194,99 @@ class TaskQueue: ObservableObject {
         }
     }
 
+    func retryActiveTask() -> TaskItem? {
+        onMainValue {
+            guard let idx = self.items.firstIndex(where: { $0.status == .active }) else { return nil }
+            let task = self.items[idx]
+            self.items[idx].status = .pending
+            self.items[idx].completedAt = nil
+            self.save()
+            return task
+        }
+    }
+
+    func completeActiveTask() -> (completed: TaskItem?, hasPending: Bool) {
+        onMainValue {
+            guard let idx = self.items.firstIndex(where: { $0.status == .active }) else {
+                return (nil, self.items.contains { $0.status == .pending })
+            }
+            let task = self.items[idx]
+            PairLog.action("queue", action: "TASK_COMPLETED", detail: "\(task.title) remaining=\(max(self.items.filter { $0.status == .pending }.count, 0))")
+            self.items[idx].status = .completed
+            self.items[idx].completedAt = Date()
+            let hasPending = self.items.contains { $0.status == .pending }
+            if !hasPending {
+                PairLog.action("queue", action: "QUEUE_AUTO_STOP", detail: "no more pending tasks")
+                self.isRunning = false
+            }
+            self.save()
+            return (task, hasPending)
+        }
+    }
+
+    func advanceAfterPrompt(madeProgress: Bool) -> (completed: TaskItem?, next: TaskItem?) {
+        onMainValue {
+            guard self.isRunning else { return (nil, nil) }
+
+            var completed: TaskItem?
+            var next: TaskItem?
+
+            if let activeIdx = self.items.firstIndex(where: { $0.status == .active }) {
+                guard madeProgress else { return (nil, nil) }
+                completed = self.items[activeIdx]
+                PairLog.action("queue", action: "TASK_COMPLETED", detail: "\(self.items[activeIdx].title) remaining=\(max(self.items.filter { $0.status == .pending }.count - 1, 0))")
+                self.items[activeIdx].status = .completed
+                self.items[activeIdx].completedAt = Date()
+            }
+
+            if let pendingIdx = self.items.firstIndex(where: { $0.status == .pending }) {
+                PairLog.action("queue", action: "TASK_ACTIVE", detail: self.items[pendingIdx].title)
+                self.items[pendingIdx].status = .active
+                next = self.items[pendingIdx]
+            } else if completed != nil {
+                PairLog.action("queue", action: "QUEUE_AUTO_STOP", detail: "no more pending tasks")
+                self.isRunning = false
+            }
+
+            if completed != nil || next != nil {
+                self.save()
+            }
+            return (completed, next)
+        }
+    }
+
+    func snapshot() -> Snapshot {
+        onMainValue {
+            Snapshot(
+                isRunning: self.isRunning,
+                pendingCount: self.pendingCount,
+                activeTitle: self.activeTask?.title,
+                items: self.items
+            )
+        }
+    }
+
+    static func snapshot(forProject cwd: String?) -> Snapshot {
+        let path = queueFilePath(for: cwd)
+        let runningPath = runningFlagPath(for: cwd)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let loaded: [TaskItem]
+        if let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+           let decoded = try? decoder.decode([TaskItem].self, from: data) {
+            loaded = decoded
+        } else {
+            loaded = []
+        }
+        let running = FileManager.default.fileExists(atPath: runningPath)
+        return Snapshot(
+            isRunning: running,
+            pendingCount: loaded.filter { $0.status == .pending }.count,
+            activeTitle: loaded.first { $0.status == .active }?.title,
+            items: loaded
+        )
+    }
+
     func clearCompleted() {
         onMain {
             self.items.removeAll { $0.status == .completed }
@@ -215,11 +313,34 @@ class TaskQueue: ObservableObject {
         if Thread.isMainThread {
             work()
         } else {
-            DispatchQueue.main.async(execute: work)
+            DispatchQueue.main.sync(execute: work)
         }
     }
 
+    private func onMainValue<T>(_ work: @escaping () -> T) -> T {
+        if Thread.isMainThread {
+            return work()
+        }
+        return DispatchQueue.main.sync(execute: work)
+    }
+
     // MARK: - Persistence
+
+    private static func queueFilePath(for cwd: String?) -> String {
+        if let dir = cwd {
+            return "\(dir)/.codex-pair/task-queue.json"
+        }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return "\(home)/.claude-codex-pair/task-queue.json"
+    }
+
+    private static func runningFlagPath(for cwd: String?) -> String {
+        if let dir = cwd {
+            return "\(dir)/.codex-pair/task-queue-running"
+        }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return "\(home)/.claude-codex-pair/task-queue-running"
+    }
 
     private func saveRunningState() {
         let path = runningFlagPath

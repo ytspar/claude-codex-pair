@@ -30,6 +30,7 @@ function readAuthToken(): string {
 interface TestResult {
 	name: string;
 	passed: boolean;
+	skipped?: boolean;
 	detail: string;
 	durationMs: number;
 }
@@ -44,6 +45,11 @@ function log(msg: string) {
 function pass(name: string, detail: string, durationMs: number) {
 	results.push({ name, passed: true, detail, durationMs });
 	console.log(`  ✓ ${name} (${(durationMs / 1000).toFixed(1)}s) — ${detail}`);
+}
+
+function skip(name: string, detail: string, durationMs: number) {
+	results.push({ name, passed: true, skipped: true, detail, durationMs });
+	console.log(`  ↷ ${name} (${(durationMs / 1000).toFixed(1)}s) — ${detail}`);
 }
 
 function fail(name: string, detail: string, durationMs: number) {
@@ -522,7 +528,11 @@ async function testAcceptEditsFlow() {
 		await ctx.waitForPrompt(240000);
 
 		const selectLogs = recentLogs("SELECT", logBefore);
-		pass("Accept-edits flow", `Completed with ${selectLogs.length} selections`, Date.now() - start);
+		if (selectLogs.length > 0) {
+			pass("Accept-edits flow", `Completed with ${selectLogs.length} selections`, Date.now() - start);
+		} else {
+			skip("Accept-edits flow", "Edit completed, but no accept-edits selection was observed", Date.now() - start);
+		}
 	});
 }
 
@@ -545,7 +555,15 @@ async function testMultiStepPermissions() {
 		await ctx.waitForPrompt(240000);
 
 		const selectLogs = recentLogs("SELECT", logBefore);
-		pass("Multi-step permissions", `Completed with ${selectLogs.length} selections`, Date.now() - start);
+		if (selectLogs.length > 0) {
+			pass("Multi-step permissions", `Completed with ${selectLogs.length} selections`, Date.now() - start);
+		} else {
+			skip(
+				"Multi-step permissions",
+				"Workflow completed, but no permission selection was observed",
+				Date.now() - start,
+			);
+		}
 	});
 }
 
@@ -711,7 +729,11 @@ async function testRealPermissionHandled() {
 				Date.now() - start,
 			);
 		} else {
-			pass("Real permission handled", `Completed (permissions may have been pre-granted)`, Date.now() - start);
+			skip(
+				"Real permission handled",
+				"No permission prompt observed; environment may have pre-granted permissions",
+				Date.now() - start,
+			);
 		}
 	});
 }
@@ -1000,9 +1022,9 @@ async function testSelectHandlesPermission() {
 				Date.now() - start,
 			);
 		} else {
-			pass(
+			skip(
 				"SELECT handles real permission",
-				`Completed with ${codexLogs.length} reviews (permissions pre-granted)`,
+				`No permission prompt observed after ${codexLogs.length} reviews; environment may have pre-granted permissions`,
 				Date.now() - start,
 			);
 		}
@@ -1041,24 +1063,24 @@ async function testAnswerInjectsText() {
 			if (answerLogs.length > 0) {
 				pass("ANSWER injects text", `Codex used ANSWER: format (${answerLogs.length} times)`, Date.now() - start);
 			} else if (feedbackLogs.length > 0) {
-				pass(
+				skip(
 					"ANSWER injects text",
-					`Codex responded with feedback (${feedbackLogs.length}x) — may have used freeform`,
+					`Codex responded with feedback (${feedbackLogs.length}x) but did not exercise ANSWER`,
 					Date.now() - start,
 				);
 			} else {
-				pass(
+				fail(
 					"ANSWER injects text",
-					`${codexLogs.length} reviews — Claude may not have asked a clear question`,
+					`${codexLogs.length} reviews but no ANSWER or feedback was injected`,
 					Date.now() - start,
 				);
 			}
 		} catch {
-			// Claude didn't ask a question — that's OK, test the pipeline anyway
+			// The target behavior was not exercised; do not count it as a pass.
 			const codexLogs = recentLogs("Codex (", logBefore);
-			pass(
+			skip(
 				"ANSWER injects text",
-				`Claude didn't ask a question, but ${codexLogs.length} reviews ran`,
+				`Claude did not ask a terminal question; ${codexLogs.length} reviews ran`,
 				Date.now() - start,
 			);
 		}
@@ -1397,8 +1419,11 @@ async function testCodexScreenDetectionWorks() {
 				Date.now() - start,
 			);
 		} else {
-			// Even without reviews, if Codex completed the task, detection worked
-			pass("Codex screen detection", `Codex completed task (monitor may not have reviewed yet)`, Date.now() - start);
+			skip(
+				"Codex screen detection",
+				"Codex completed, but monitor detection/review logs did not appear",
+				Date.now() - start,
+			);
 		}
 	});
 }
@@ -1427,9 +1452,13 @@ async function testCodexLeadsClaudeReviews() {
 		if (allLogs.length > 0) {
 			pass("Claude reviews Codex work", `Claude made ${allLogs.length} structured decisions`, Date.now() - start);
 		} else if (reviewLogs.length > 0) {
-			pass("Claude reviews Codex work", `${reviewLogs.length} reviews triggered`, Date.now() - start);
+			fail(
+				"Claude reviews Codex work",
+				`${reviewLogs.length} reviews triggered but no structured decision was logged`,
+				Date.now() - start,
+			);
 		} else {
-			pass(
+			skip(
 				"Claude reviews Codex work",
 				`Codex completed (Claude review may not have triggered in time)`,
 				Date.now() - start,
@@ -1598,14 +1627,17 @@ export async function runTestLoop(): Promise<void> {
 	}
 
 	// Summary
-	const passed = results.filter((r) => r.passed).length;
+	const passed = results.filter((r) => r.passed && !r.skipped).length;
+	const skipped = results.filter((r) => r.skipped).length;
 	const failed = results.filter((r) => !r.passed).length;
 	const total = results.length;
 	const totalTime = results.reduce((sum, r) => sum + r.durationMs, 0);
 
 	log("");
 	log(`${"═".repeat(60)}`);
-	log(`Results: ${passed}/${total} passed, ${failed} failed (${(totalTime / 1000).toFixed(1)}s total)`);
+	log(
+		`Results: ${passed}/${total} passed, ${skipped} skipped, ${failed} failed (${(totalTime / 1000).toFixed(1)}s total)`,
+	);
 	if (failed > 0) {
 		log("");
 		log("Failures:");

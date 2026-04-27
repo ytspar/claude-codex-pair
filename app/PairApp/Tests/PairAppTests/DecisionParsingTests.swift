@@ -78,6 +78,24 @@ final class DecisionParsingTests: XCTestCase {
         XCTAssertEqual(n, 2)
     }
 
+    func testMalformedSelectEscalates() {
+        let decision = CodexDecision.parse("SELECT: allow")
+        guard case .escalate(let reason) = decision else {
+            XCTFail("Expected .escalate, got \(decision)")
+            return
+        }
+        XCTAssertTrue(reason.contains("invalid SELECT"))
+    }
+
+    func testZeroSelectEscalates() {
+        let decision = CodexDecision.parse("SELECT: 0")
+        guard case .escalate(let reason) = decision else {
+            XCTFail("Expected .escalate, got \(decision)")
+            return
+        }
+        XCTAssertTrue(reason.contains("invalid SELECT"))
+    }
+
     func testApproveAnywhere() {
         let decision = CodexDecision.parse("looks good, APPROVE")
         guard case .unknown(let text) = decision else {

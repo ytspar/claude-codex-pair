@@ -1,15 +1,12 @@
 # Codex Strategy for claude-codex-pair
-Updated: 2026-04-27 12:04
+Updated: 2026-04-27 12:37
 
 ## Effectiveness
 - Total interventions: 50
-- Improved: 1 (2%)
+- Improved: 0 (0%)
 - Regressed: 0 (0%)
-- Loop detections: 6
-- Avg review duration: 15271ms
-
-## What Worked
-- APPROVE
+- Loop detections: 3
+- Avg review duration: 13735ms
 
 ## Pending Improvements (auto-queued as tasks)
 - Add a hard pre-ingest `NOOP_STOP` guard for startup banner + `WAIT` + `⏺ Waiting.` + clean final `❯` before classification, menu rendering, loop tracking, decision history, or context writes.

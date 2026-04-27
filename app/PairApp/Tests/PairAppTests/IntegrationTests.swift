@@ -152,6 +152,8 @@ final class IntegrationTests: XCTestCase {
         try "staged\n".write(to: repo.appendingPathComponent("staged.swift"), atomically: true, encoding: .utf8)
         try runGit(["add", "staged.swift"], cwd: repo)
         try "let untracked = true\n".write(to: repo.appendingPathComponent("untracked.swift"), atomically: true, encoding: .utf8)
+        try #"{"api_key":"sk-live-secret-value"}"#
+            .write(to: repo.appendingPathComponent("config.json"), atomically: true, encoding: .utf8)
 
         let detail = try XCTUnwrap(CodexIntegration.gitDiffDetail(cwd: repo.path))
         XCTAssertTrue(detail.contains("--- GIT STATUS ---"))
@@ -162,6 +164,9 @@ final class IntegrationTests: XCTestCase {
         XCTAssertTrue(detail.contains("tracked.txt"))
         XCTAssertTrue(detail.contains("untracked.swift"))
         XCTAssertTrue(detail.contains("let untracked = true"))
+        XCTAssertTrue(detail.contains("config.json"))
+        XCTAssertTrue(detail.contains("skipped: possible secret content"))
+        XCTAssertFalse(detail.contains("sk-live-secret-value"))
     }
 
     // MARK: - Screen Hash Stability Detection

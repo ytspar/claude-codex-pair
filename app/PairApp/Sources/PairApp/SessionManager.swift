@@ -26,20 +26,24 @@ class SessionManager: ObservableObject {
         return sessions.first
     }
 
-    func createSession(cwd: String, id: String? = nil, mode: PairSession.PairMode = .claudeLeads) {
+    @discardableResult
+    func createSession(cwd: String, id: String? = nil, mode: PairSession.PairMode = .claudeLeads) -> String {
         let sessionId = id ?? "pair-\(Int(Date().timeIntervalSince1970) % 100000)"
         PairLog.info("Creating session \(sessionId) in \(cwd) (mode: \(mode.rawValue))")
         let session = PairSession(id: sessionId, cwd: cwd)
         session.mode = mode
         sessions.append(session)
         activeSessionId = sessionId
+        return sessionId
     }
 
     func removeSession(_ id: String) {
         if let idx = sessions.firstIndex(where: { $0.id == id }) {
+            let wasActive = activeSessionId == id
+            let cwd = sessions[idx].cwd
             sessions[idx].stop()
             sessions.remove(at: idx)
-            ClaudeMonitor.shared.removeSession(id)
+            ClaudeMonitor.shared.removeSession(id, wasActive: wasActive, cwd: cwd)
             if activeSessionId == id { activeSessionId = sessions.first?.id }
         }
     }
@@ -192,6 +196,12 @@ class PairSession: Identifiable, ObservableObject {
         }
     }
 
+    func sendRawInput(_ text: String) {
+        lastInputSource = .machine
+        lastMachineInputTime = Date()
+        terminalView?.sendPreservingScroll(txt: text)
+    }
+
     /// Type text character by character, simulating real keyboard input.
     /// Needed for Ink-based TUIs (like Codex) that read raw keystrokes
     /// instead of buffered lines. Each character is sent as an individual
@@ -238,7 +248,7 @@ class PairSession: Identifiable, ObservableObject {
 
     func goalContext() -> String {
         var lines: [String] = []
-        if let active = TaskQueue.shared.activeTask, active.status == .active {
+        if let active = TaskQueue.shared.snapshot().items.first(where: { $0.status == .active }) {
             lines.append("Active queued task: \(active.prompt)")
         }
         let recent = recentOperatorPrompts.suffix(3)
@@ -266,30 +276,43 @@ class PairSession: Identifiable, ObservableObject {
     /// Claude Code uses TUI widgets where you arrow down to select, then Enter.
     func sendArrowDown(_ count: Int = 1) {
         for _ in 0..<count {
-            terminalView?.sendPreservingScroll(txt: "\u{1b}[B")  // ESC [ B = arrow down
+            sendRawInput("\u{1b}[B")  // ESC [ B = arrow down
         }
     }
 
     func sendArrowUp(_ count: Int = 1) {
         for _ in 0..<count {
-            terminalView?.sendPreservingScroll(txt: "\u{1b}[A")  // ESC [ A = arrow up
+            sendRawInput("\u{1b}[A")  // ESC [ A = arrow up
         }
     }
 
     func sendEnter() {
-        terminalView?.sendPreservingScroll(txt: "\r")
+        sendRawInput("\r")
     }
 
     func sendEscape() {
-        terminalView?.sendPreservingScroll(txt: "\u{1b}")
+        sendRawInput("\u{1b}")
     }
 
     /// Select a numbered option in Claude's interactive prompts.
     /// Detects the current selection (❯ marker) and arrows to the target.
-    func selectOption(_ optionNumber: Int, screenText: String? = nil) {
+    @discardableResult
+    func selectOption(_ optionNumber: Int, screenText: String? = nil) -> Bool {
         let screen = screenText ?? readScreen()
         let optionCount = Self.selectionOptionCount(in: screen)
-        let target = max(1, min(optionNumber, optionCount ?? optionNumber))
+        guard optionNumber >= 1 else {
+            PairLog.error("[\(id)] Invalid selection option \(optionNumber)")
+            return false
+        }
+        if let optionCount, optionNumber > optionCount {
+            PairLog.error("[\(id)] Selection option \(optionNumber) out of range (count=\(optionCount))")
+            return false
+        }
+        if optionCount == nil && optionNumber > 20 {
+            PairLog.error("[\(id)] Selection option \(optionNumber) rejected because option count is unknown")
+            return false
+        }
+        let target = optionNumber
         let current = Self.currentSelectionIndex(in: screen) ?? 1
         let delta = target - current
         if delta > 0 {
@@ -303,6 +326,7 @@ class PairSession: Identifiable, ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             self?.sendEnter()
         }
+        return true
     }
 
     static func currentSelectionIndex(in screenText: String) -> Int? {

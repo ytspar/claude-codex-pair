@@ -308,16 +308,69 @@ enum CodexIntegration {
             guard remainingBudget > 0,
                   previewExtensions.contains(where: { file.hasSuffix($0) }),
                   !file.contains("node_modules") && !file.contains("package-lock") else { continue }
+            guard !looksSensitivePath(file) else {
+                detail += "\n\n--- UNTRACKED CONTENT: \(file) ---\n(skipped: sensitive-looking path)"
+                continue
+            }
 
             let url = URL(fileURLWithPath: cwd).appendingPathComponent(file).standardizedFileURL
             guard url.path.hasPrefix(root + "/"),
                   let content = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            guard !looksSensitiveContent(content) else {
+                detail += "\n\n--- UNTRACKED CONTENT: \(file) ---\n(skipped: possible secret content)"
+                continue
+            }
             let preview = String(content.prefix(min(remainingBudget, 1200)))
             remainingBudget -= preview.count
             detail += "\n\n--- UNTRACKED CONTENT: \(file) ---\n\(preview)"
             if content.count > preview.count { detail += "\n... (file truncated)" }
         }
         return detail
+    }
+
+    private static func looksSensitivePath(_ path: String) -> Bool {
+        let lower = path.lowercased()
+        let basename = URL(fileURLWithPath: lower).lastPathComponent
+        if basename == ".env" || basename.hasPrefix(".env.") { return true }
+        let markers = [
+            "secret",
+            "secrets",
+            "credential",
+            "credentials",
+            "token",
+            "auth-token",
+            "password",
+            "passwd",
+            "private_key",
+            "id_rsa",
+            "id_ed25519",
+            "keychain",
+        ]
+        return markers.contains { lower.contains($0) }
+    }
+
+    private static func looksSensitiveContent(_ content: String) -> Bool {
+        let lower = content.lowercased()
+        let markers = [
+            "api_key",
+            "apikey",
+            "auth_token",
+            "access_token",
+            "refresh_token",
+            "client_secret",
+            "private_key",
+            "-----begin private key-----",
+            "-----begin rsa private key-----",
+            "bearer ",
+            "\"password\"",
+            "'password'",
+            "password:",
+            "password=",
+            "\"secret\"",
+            "secret:",
+            "secret=",
+        ]
+        return markers.contains { lower.contains($0) }
     }
 
     // MARK: - Binary discovery

@@ -33,7 +33,11 @@ enum CodexDecision {
         }
         if upper.hasPrefix("SELECT:") {
             let value = String(first.dropFirst("SELECT:".count)).trimmingCharacters(in: .whitespaces)
-            let n = value.split(separator: " ").first.flatMap { Int($0) } ?? 1
+            guard let token = value.split(separator: " ").first,
+                  let n = Int(token),
+                  n >= 1 else {
+                return .escalate("Reviewer returned invalid SELECT decision: \(first)")
+            }
             return .select(n)
         }
         if upper.hasPrefix("REDIRECT:") {

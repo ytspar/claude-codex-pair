@@ -80,9 +80,14 @@ extension ClaudeMonitor {
             // The reviewer explicitly wants to select a menu option.
             // Use arrow-key navigation since TUI selects don't accept typed numbers.
             PairLog.info("[\(session.id)] SELECT \(option) via arrow keys")
-            addTimeline(st, "SELECT", "Selecting option \(option)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
-            st.hadInteraction = true
-            session.selectOption(option, screenText: screenText)
+            if session.selectOption(option, screenText: screenText) {
+                addTimeline(st, "SELECT", "Selecting option \(option)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
+                st.hadInteraction = true
+            } else {
+                let reason = "Invalid SELECT option \(option) for visible menu"
+                addTimeline(st, "ESCALATE", reason, source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
+                NotificationStore.shared.addNotification(sessionId: session.id, title: "Reviewer selection failed", body: reason)
+            }
 
         case .unknown(let text):
             let cleaned = Self.stripLearnings(text)

@@ -478,17 +478,16 @@ class ClaudeMonitor: ObservableObject {
         }
     }
 
-    func removeSession(_ sessionId: String) {
+    func removeSession(_ sessionId: String, wasActive: Bool, cwd: String) {
         let st = sessionStatesLock.withLock { sessionStates[sessionId] }
         if let st {
             st.sessionRemoved = true
             st.transition(to: .idle, reason: "session removed")
             st.clearInjectionQueue()
         }
-        sessionStatesLock.withLock { sessionStates.removeValue(forKey: sessionId) }
-        if let active = TaskQueue.shared.activeTask {
+        _ = sessionStatesLock.withLock { sessionStates.removeValue(forKey: sessionId) }
+        if wasActive, TaskQueue.shared.projectDir == cwd, let active = TaskQueue.shared.retryActiveTask() {
             PairLog.info("Session \(sessionId) removed — resetting active task to pending: \(active.title)")
-            TaskQueue.shared.retry(id: active.id)
         }
     }
 
@@ -543,24 +542,18 @@ class ClaudeMonitor: ObservableObject {
         // If task queue is running, complete the active task and stage the next one.
         // Only mark complete if Claude actually did work (hadInteraction or screen changes).
         // This prevents rapid-fire task completion when the prompt is momentarily empty.
-        if TaskQueue.shared.isRunning && !st.hasQueuedInjections {
+        let queueSnapshot = TaskQueue.shared.snapshot()
+        if queueSnapshot.isRunning && !st.hasQueuedInjections {
             let activeTaskMadeProgress = st.hadInteraction || st.changeCount > 0
-            if let stale = TaskQueue.shared.activeTask, activeTaskMadeProgress {
-                // Previous task completed — mark done and pick up the next one
-                PairLog.info("[\(session.id)] Active task at prompt, marking completed: \(stale.title)")
-                TaskQueue.shared.markCompleted(id: stale.id)
+            let advancement = TaskQueue.shared.advanceAfterPrompt(madeProgress: activeTaskMadeProgress)
+            if let completed = advancement.completed {
+                PairLog.info("[\(session.id)] Active task at prompt, marking completed: \(completed.title)")
                 st.hadInteraction = false
                 st.changeCount = 0
-                if let nextTask = TaskQueue.shared.nextPending() {
-                    TaskQueue.shared.markActive(id: nextTask.id)
-                    st.enqueue(nextTask.prompt, source: .taskQueue, taskId: nextTask.id)
-                    PairLog.info("[\(session.id)] Task queued for injection: \(nextTask.title)")
-                }
-            } else if TaskQueue.shared.activeTask == nil, let nextTask = TaskQueue.shared.nextPending() {
-                // No active task yet (queue just started) — pick up the first pending task
-                TaskQueue.shared.markActive(id: nextTask.id)
+            }
+            if let nextTask = advancement.next {
                 st.enqueue(nextTask.prompt, source: .taskQueue, taskId: nextTask.id)
-                PairLog.info("[\(session.id)] First task queued for injection: \(nextTask.title)")
+                PairLog.info("[\(session.id)] Task queued for injection: \(nextTask.title)")
             }
         }
 
@@ -667,8 +660,7 @@ class ClaudeMonitor: ObservableObject {
             st.emptyScreenCount += 1
             if st.emptyScreenCount == maxEmptyScreens {
                 PairLog.error("[\(session.id)] Screen read returned empty \(maxEmptyScreens) times")
-                if let active = TaskQueue.shared.activeTask {
-                    TaskQueue.shared.retry(id: active.id)
+                if let active = TaskQueue.shared.retryActiveTask() {
                     PairLog.info("[\(session.id)] Terminal dead — resetting active task to pending: \(active.title)")
                 }
                 transitionAndSync(st, to: .error, reason: "terminal screen empty")
@@ -738,8 +730,9 @@ class ClaudeMonitor: ObservableObject {
             }
             if let since = st.watchingSince,
                -since.timeIntervalSinceNow >= maxWatchingSec,
-               !st.reviewInProgress && st.changeCount >= changeThreshold
-               && !(TaskQueue.shared.isRunning && (TaskQueue.shared.hasPending || TaskQueue.shared.activeTask != nil)) {
+               !st.reviewInProgress && st.changeCount >= changeThreshold {
+                let queue = TaskQueue.shared.snapshot()
+                if queue.isRunning && (queue.pendingCount > 0 || queue.activeTitle != nil) { return }
                 PairLog.info("[\(session.id)] Claude working for \(Int(-since.timeIntervalSinceNow))s without pause, forcing review")
                 let screenSnippet = String(screenText.split(separator: "\n").suffix(8).joined(separator: "\n"))
                 st.recordScreenSnapshot(screenText)
@@ -775,11 +768,12 @@ class ClaudeMonitor: ObservableObject {
             // When queue is running, skip review — drainInjectionQueue handles task delivery.
             // Check activeTask too: the current task may be done on screen but not yet
             // completed in the queue (drain handles that on the next poll cycle).
-            let queueHasWork = TaskQueue.shared.isRunning
-                && (TaskQueue.shared.hasPending || TaskQueue.shared.activeTask != nil || st.hasQueuedInjections)
+            let queue = TaskQueue.shared.snapshot()
+            let queueHasWork = queue.isRunning
+                && (queue.pendingCount > 0 || queue.activeTitle != nil || st.hasQueuedInjections)
             if !isBlocking && queueHasWork {
                 if st.stableCount == effectiveThreshold {
-                    PairLog.info("[\(session.id)] Queue running, skipping review — drain will handle (pending=\(TaskQueue.shared.pendingCount), active=\(TaskQueue.shared.activeTask?.title ?? "none"))")
+                    PairLog.info("[\(session.id)] Queue running, skipping review — drain will handle (pending=\(queue.pendingCount), active=\(queue.activeTitle ?? "none"))")
                     st.changeCount = 0
                 }
                 return
@@ -968,12 +962,12 @@ class ClaudeMonitor: ObservableObject {
                 DispatchQueue.main.async {
                     self.addTimeline(st, "APPROVED", response, source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: result.prompt, codexResponse: response, diffSummary: result.diffSummary)
                 }
-                if let activeTask = TaskQueue.shared.activeTask {
-                    TaskQueue.shared.markCompleted(id: activeTask.id)
+                let completion = TaskQueue.shared.completeActiveTask()
+                if let activeTask = completion.completed {
                     PairLog.info("[\(session.id)] Task completed: \(activeTask.title)")
                 }
                 // drainInjectionQueue will pick up the next task on the next poll cycle
-                if TaskQueue.shared.hasPending {
+                if completion.hasPending {
                     self.transitionAndSync(st, to: .watching, resetCounters: true, reason: "approved, more tasks pending")
                 } else {
                     self.transitionAndSync(st, to: .approved, reason: "approved, queue empty")

@@ -453,7 +453,7 @@ class CodexLedger {
         guard let next = pending.first else { return }
 
         // Don't pile up — only queue if no IMPROVE tasks are already pending
-        let hasExistingImprove = TaskQueue.shared.items.contains {
+        let hasExistingImprove = TaskQueue.shared.snapshot().items.contains {
             ($0.status == .pending || $0.status == .active) && $0.prompt.hasPrefix("IMPROVE:")
         }
         guard !hasExistingImprove else { return }

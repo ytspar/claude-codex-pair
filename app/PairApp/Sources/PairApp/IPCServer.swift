@@ -13,6 +13,13 @@ class IPCServer {
     private let queue = DispatchQueue(label: "pair-app.ipc", qos: .userInitiated)
     private var acceptSource: DispatchSourceRead?
     private(set) var authToken: String = ""
+    private var testIPCEnabled: Bool {
+        #if DEBUG
+        return true
+        #else
+        return ProcessInfo.processInfo.environment["PAIR_ENABLE_TEST_IPC"] == "1"
+        #endif
+    }
 
     static var tokenPath: String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -121,35 +128,35 @@ class IPCServer {
         guard request.token == authToken else {
             return IPCResponse(ok: false, error: "Invalid or missing auth token")
         }
+        if Self.isTestHarnessAction(request.action) && !testIPCEnabled {
+            return IPCResponse(ok: false, error: "Test IPC action disabled: \(request.action)")
+        }
 
         switch request.action {
         case "send_input":
             guard let surfaceId = request.surface, let text = request.text else {
                 return IPCResponse(ok: false, error: "Missing surface or text")
             }
-            // Dispatch to main thread for thread-safe access to @Published sessions
-            var success = false
-            let semaphore = DispatchSemaphore(value: 0)
-            DispatchQueue.main.async {
-                success = SessionManager.shared.sendInput(sessionId: surfaceId, text: text)
-                semaphore.signal()
+            return runOnMain {
+                let success = SessionManager.shared.sendInput(sessionId: surfaceId, text: text)
+                return IPCResponse(ok: success, error: success ? nil : "Session not found")
             }
-            if semaphore.wait(timeout: .now() + 10) == .timedOut {
-                return IPCResponse(ok: false, error: "Timed out waiting for main thread")
-            }
-            return IPCResponse(ok: success, error: success ? nil : "Session not found")
 
         case "type_input":
             // Character-by-character typing for Ink-based TUIs (Codex)
             guard let surfaceId = request.surface, let text = request.text else {
                 return IPCResponse(ok: false, error: "Missing surface or text")
             }
-            guard let session = SessionManager.shared.findSession(surfaceId) else {
-                return IPCResponse(ok: false, error: "Session not found")
-            }
+            var response = IPCResponse(ok: false, error: "No response")
             let typeSem = DispatchSemaphore(value: 0)
             DispatchQueue.main.async {
+                guard let session = SessionManager.shared.findSession(surfaceId) else {
+                    response = IPCResponse(ok: false, error: "Session not found")
+                    typeSem.signal()
+                    return
+                }
                 session.typeInput(text, delayMs: 15) {
+                    response = IPCResponse(ok: true)
                     typeSem.signal()
                 }
             }
@@ -158,96 +165,85 @@ class IPCServer {
             if typeSem.wait(timeout: typeTimeout) == .timedOut {
                 return IPCResponse(ok: false, error: "Typing timed out")
             }
-            return IPCResponse(ok: true)
+            return response
 
         case "list_sessions":
-            let sessions = SessionManager.shared.sessions.map { ["id": $0.id, "cwd": $0.cwd] }
-            if let data = try? JSONEncoder().encode(sessions), let str = String(data: data, encoding: .utf8) {
-                return IPCResponse(ok: true, result: str)
+            return runOnMain {
+                let sessions = SessionManager.shared.sessions.map { ["id": $0.id, "cwd": $0.cwd] }
+                if let data = try? JSONEncoder().encode(sessions), let str = String(data: data, encoding: .utf8) {
+                    return IPCResponse(ok: true, result: str)
+                }
+                return IPCResponse(ok: true, result: "[]")
             }
-            return IPCResponse(ok: true, result: "[]")
 
         case "create_session":
             let cwd = request.text ?? FileManager.default.currentDirectoryPath
             // Optional mode: "codexLeads" or "claudeLeads" (default)
             let mode: PairSession.PairMode = request.surface?.hasSuffix(":codex") == true ? .codexLeads : .claudeLeads
             let sessionId = request.surface?.replacingOccurrences(of: ":codex", with: "")
-            DispatchQueue.main.async {
-                SessionManager.shared.createSession(cwd: cwd, id: sessionId, mode: mode)
+            return runOnMain {
+                let id = SessionManager.shared.createSession(cwd: cwd, id: sessionId, mode: mode)
+                return IPCResponse(ok: true, result: id)
             }
-            return IPCResponse(ok: true)
 
         case "read_screen":
             guard let surfaceId = request.surface else {
                 return IPCResponse(ok: false, error: "Missing surface")
             }
-            guard let session = SessionManager.shared.findSession(surfaceId) else {
-                return IPCResponse(ok: false, error: "Session not found")
+            return runOnMain {
+                guard let session = SessionManager.shared.findSession(surfaceId) else {
+                    return IPCResponse(ok: false, error: "Session not found")
+                }
+                return IPCResponse(ok: true, result: session.readScreen())
             }
-            var screenText = ""
-            let semaphore = DispatchSemaphore(value: 0)
-            DispatchQueue.main.async {
-                screenText = session.readScreen()
-                semaphore.signal()
-            }
-            if semaphore.wait(timeout: .now() + 10) == .timedOut {
-                return IPCResponse(ok: false, error: "Timed out waiting for main thread")
-            }
-            return IPCResponse(ok: true, result: screenText)
 
         case "debug_screen":
             guard let surfaceId = request.surface else {
                 return IPCResponse(ok: false, error: "Missing surface")
             }
-            guard let session = SessionManager.shared.findSession(surfaceId) else {
-                return IPCResponse(ok: false, error: "Session not found")
-            }
-            var info = ""
-            let dbgSem = DispatchSemaphore(value: 0)
-            DispatchQueue.main.async {
+            return runOnMain {
+                guard let session = SessionManager.shared.findSession(surfaceId) else {
+                    return IPCResponse(ok: false, error: "Session not found")
+                }
                 let screen = session.readScreen()
                 let isAlt = session.isAltBuffer
                 if let tv = session.terminalView {
                     let t = tv.getTerminal()
-                    info = "alt=\(isAlt) rows=\(t.rows) cols=\(t.cols) len=\(screen.count)\n---\n\(screen)"
-                } else {
-                    info = "alt=\(isAlt) rows=0 cols=0 len=\(screen.count) (no terminal)\n---\n\(screen)"
+                    return IPCResponse(ok: true, result: "alt=\(isAlt) rows=\(t.rows) cols=\(t.cols) len=\(screen.count)\n---\n\(screen)")
                 }
-                dbgSem.signal()
+                return IPCResponse(ok: true, result: "alt=\(isAlt) rows=0 cols=0 len=\(screen.count) (no terminal)\n---\n\(screen)")
             }
-            if dbgSem.wait(timeout: .now() + 10) == .timedOut {
-                return IPCResponse(ok: false, error: "Timed out")
-            }
-            return IPCResponse(ok: true, result: info)
 
         case "send_key":
             guard let surfaceId = request.surface, let key = request.text else {
                 return IPCResponse(ok: false, error: "Missing surface or key")
             }
-            guard let session = SessionManager.shared.findSession(surfaceId) else {
-                return IPCResponse(ok: false, error: "Session not found")
-            }
             let keySequence = resolveKey(key)
-            session.injectInput(keySequence)
-            return IPCResponse(ok: true)
+            return runOnMain {
+                guard let session = SessionManager.shared.findSession(surfaceId) else {
+                    return IPCResponse(ok: false, error: "Session not found")
+                }
+                session.sendRawInput(keySequence)
+                return IPCResponse(ok: true)
+            }
 
         case "notify":
             let sessionId = request.surface ?? ""
             let title = request.text ?? "Notification"
-            DispatchQueue.main.async {
+            return runOnMain {
                 NotificationStore.shared.addNotification(sessionId: sessionId, title: title, body: "")
+                return IPCResponse(ok: true)
             }
-            return IPCResponse(ok: true)
 
         case "report_pwd":
             // Shell integration: update session's current directory
-            if let text = request.text, let surface = request.surface,
-               let session = SessionManager.shared.findSession(surface) {
-                DispatchQueue.main.async {
+            return runOnMain {
+                if let text = request.text, let surface = request.surface,
+                   let session = SessionManager.shared.findSession(surface) {
                     session.currentDirectory = text
                 }
+                return IPCResponse(ok: true)
             }
-            return IPCResponse(ok: true)
 
         case "report_cmd":
             // Shell integration: log command execution
@@ -290,18 +286,13 @@ class IPCServer {
             guard let surfaceId = request.surface, let response = request.text else {
                 return IPCResponse(ok: false, error: "Missing surface or text")
             }
-            guard let session = SessionManager.shared.findSession(surfaceId) else {
-                return IPCResponse(ok: false, error: "Session not found")
-            }
-            let decisionSemaphore = DispatchSemaphore(value: 0)
-            DispatchQueue.main.async {
+            return runOnMain {
+                guard let session = SessionManager.shared.findSession(surfaceId) else {
+                    return IPCResponse(ok: false, error: "Session not found")
+                }
                 ClaudeMonitor.shared.handleTestDecision(session: session, response: response)
-                decisionSemaphore.signal()
+                return IPCResponse(ok: true)
             }
-            if decisionSemaphore.wait(timeout: .now() + 10) == .timedOut {
-                return IPCResponse(ok: false, error: "Timed out waiting for main thread")
-            }
-            return IPCResponse(ok: true)
 
         case "test_unhelpful":
             // Test harness only: apply one neutral/regressed outcome through the
@@ -309,24 +300,18 @@ class IPCServer {
             guard let surfaceId = request.surface else {
                 return IPCResponse(ok: false, error: "Missing surface")
             }
-            guard let session = SessionManager.shared.findSession(surfaceId) else {
-                return IPCResponse(ok: false, error: "Session not found")
-            }
-            var state = IPCTestBackoffState(streak: 0, backoff: 1.0)
-            let backoffSemaphore = DispatchSemaphore(value: 0)
-            DispatchQueue.main.async {
+            return runOnMain {
+                guard let session = SessionManager.shared.findSession(surfaceId) else {
+                    return IPCResponse(ok: false, error: "Session not found")
+                }
                 let result = ClaudeMonitor.shared.handleTestUnhelpfulOutcome(session: session)
-                state = IPCTestBackoffState(streak: result.streak, backoff: result.backoff)
-                backoffSemaphore.signal()
+                let state = IPCTestBackoffState(streak: result.streak, backoff: result.backoff)
+                guard let data = try? JSONEncoder().encode(state),
+                      let encoded = String(data: data, encoding: .utf8) else {
+                    return IPCResponse(ok: false, error: "Failed to encode backoff state")
+                }
+                return IPCResponse(ok: true, result: encoded)
             }
-            if backoffSemaphore.wait(timeout: .now() + 10) == .timedOut {
-                return IPCResponse(ok: false, error: "Timed out waiting for main thread")
-            }
-            guard let data = try? JSONEncoder().encode(state),
-                  let encoded = String(data: data, encoding: .utf8) else {
-                return IPCResponse(ok: false, error: "Failed to encode backoff state")
-            }
-            return IPCResponse(ok: true, result: encoded)
 
         case "queue_add", "queue_start", "queue_stop", "queue_clear", "queue_state":
             // Test harness queue controls. Auth is still required above, and the
@@ -338,15 +323,10 @@ class IPCServer {
             guard let surfaceId = request.surface else {
                 return IPCResponse(ok: false, error: "Missing surface")
             }
-            let removeSemaphore = DispatchSemaphore(value: 0)
-            DispatchQueue.main.async {
+            return runOnMain {
                 SessionManager.shared.removeSession(surfaceId)
-                removeSemaphore.signal()
+                return IPCResponse(ok: true)
             }
-            if removeSemaphore.wait(timeout: .now() + 10) == .timedOut {
-                return IPCResponse(ok: false, error: "Timed out waiting for main thread")
-            }
-            return IPCResponse(ok: true)
 
         default:
             return IPCResponse(ok: false, error: "Unknown action: \(request.action)")
@@ -367,34 +347,40 @@ class IPCServer {
                 return
             }
 
-            SessionManager.shared.activeSessionId = session.id
-            TaskQueue.shared.setProject(session.cwd)
-
             switch request.action {
+            case "queue_state":
+                let snapshot = TaskQueue.shared.projectDir == session.cwd
+                    ? TaskQueue.shared.snapshot()
+                    : TaskQueue.snapshot(forProject: session.cwd)
+                response = IPCResponse(ok: true, result: Self.encodeQueueState(snapshot))
+                semaphore.signal()
+                return
             case "queue_add":
                 guard let prompt = request.text, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                     response = IPCResponse(ok: false, error: "Missing text")
                     semaphore.signal()
                     return
                 }
+                TaskQueue.shared.setProject(session.cwd)
                 TaskQueue.shared.addTask(prompt: prompt)
             case "queue_start":
+                TaskQueue.shared.setProject(session.cwd)
                 TaskQueue.shared.start()
             case "queue_stop":
+                TaskQueue.shared.setProject(session.cwd)
                 TaskQueue.shared.stop()
             case "queue_clear":
+                TaskQueue.shared.setProject(session.cwd)
                 TaskQueue.shared.stop()
                 TaskQueue.shared.clearAll()
                 ClaudeMonitor.shared.clearQueue(for: session.id)
-            case "queue_state":
-                break
             default:
                 response = IPCResponse(ok: false, error: "Unknown queue action: \(request.action)")
                 semaphore.signal()
                 return
             }
 
-            response = IPCResponse(ok: true, result: Self.encodeQueueState())
+            response = IPCResponse(ok: true, result: Self.encodeQueueState(TaskQueue.shared.snapshot()))
             semaphore.signal()
         }
 
@@ -404,12 +390,12 @@ class IPCServer {
         return response
     }
 
-    private static func encodeQueueState() -> String {
+    private static func encodeQueueState(_ snapshot: TaskQueue.Snapshot) -> String {
         let state = IPCQueueState(
-            isRunning: TaskQueue.shared.isRunning,
-            pendingCount: TaskQueue.shared.pendingCount,
-            activeTitle: TaskQueue.shared.activeTask?.title,
-            items: TaskQueue.shared.items.map {
+            isRunning: snapshot.isRunning,
+            pendingCount: snapshot.pendingCount,
+            activeTitle: snapshot.activeTitle,
+            items: snapshot.items.map {
                 IPCQueueItemState(
                     id: $0.id.uuidString,
                     title: $0.title,
@@ -423,6 +409,34 @@ class IPCServer {
             return "{}"
         }
         return encoded
+    }
+
+    private func runOnMain(_ work: @escaping () -> IPCResponse) -> IPCResponse {
+        if Thread.isMainThread {
+            return work()
+        }
+        var response = IPCResponse(ok: false, error: "No response")
+        let semaphore = DispatchSemaphore(value: 0)
+        DispatchQueue.main.async {
+            response = work()
+            semaphore.signal()
+        }
+        if semaphore.wait(timeout: .now() + 10) == .timedOut {
+            return IPCResponse(ok: false, error: "Timed out waiting for main thread")
+        }
+        return response
+    }
+
+    private static func isTestHarnessAction(_ action: String) -> Bool {
+        if action.hasPrefix("queue_") { return true }
+        return [
+            "pause_monitor",
+            "resume_monitor",
+            "clear_queue",
+            "test_decision",
+            "test_unhelpful",
+            "remove_session",
+        ].contains(action)
     }
 
     private func sendResponse(_ fd: Int32, _ response: IPCResponse) {

@@ -9,7 +9,15 @@ FAIL=0
 LOG="$HOME/.claude-codex-pair/pairapp.log"
 SOCKET="$HOME/.claude-codex-pair/pair-terminal.sock"
 TOKEN_FILE="$HOME/.claude-codex-pair/auth-token"
-PAIR_APP_PATH="${PAIR_APP_PATH:-/Applications/Pair.app}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PAIR_APP_PATH="${PAIR_APP_PATH:-$ROOT/app/PairApp/.build/debug/PairApp}"
+if [[ -z "${PAIR_PROCESS:-}" ]]; then
+    if [[ "$PAIR_APP_PATH" == *.app ]]; then
+        PAIR_PROCESS="Pair"
+    else
+        PAIR_PROCESS="$(basename "$PAIR_APP_PATH")"
+    fi
+fi
 
 pass() { echo "  ✅ $1"; PASS=$((PASS + 1)); }
 fail() { echo "  ❌ $1"; FAIL=$((FAIL + 1)); }
@@ -28,7 +36,7 @@ echo ""
 
 # Clean state
 if [[ "${PAIR_UI_TEST_KILL:-0}" == "1" ]]; then
-    pkill -f Pair 2>/dev/null || true
+    pkill -x "$PAIR_PROCESS" 2>/dev/null || true
     sleep 1
 fi
 > "$LOG"
@@ -42,17 +50,26 @@ ipc() {
 
 # ── Test 1: App launches ──
 echo "Test 1: Launch"
-open "$PAIR_APP_PATH"
+if [[ ! -e "$PAIR_APP_PATH" ]]; then
+    fail "App path does not exist: $PAIR_APP_PATH"
+    exit 1
+fi
+if [[ -d "$PAIR_APP_PATH" ]]; then
+    open "$PAIR_APP_PATH"
+else
+    "$PAIR_APP_PATH" >/tmp/pair-ui-test.out 2>/tmp/pair-ui-test.err &
+    PAIR_UI_TEST_PID=$!
+fi
 sleep 5
 
-if pgrep -x "Pair" > /dev/null 2>&1 || pgrep -f "PairApp" > /dev/null 2>&1; then
+if pgrep -x "$PAIR_PROCESS" > /dev/null 2>&1; then
     pass "App is running"
 else
     fail "App did not start"
     exit 1
 fi
 
-WINDOW=$(run_osa 'tell application "System Events" to tell process "Pair" to get name of window 1' || echo "")
+WINDOW=$(run_osa "tell application \"System Events\" to tell process \"$PAIR_PROCESS\" to get name of window 1" || echo "")
 if [[ -n "$WINDOW" ]]; then
     pass "Window: $WINDOW"
 else
@@ -94,10 +111,10 @@ grep -q "Creating session" "$LOG" && pass "Session logged" || fail "Session not 
 
 # ── Test 6: Cmd+T (new tab) ──
 echo "Test 6: Cmd+T"
-run_osa 'tell application "System Events" to tell process "Pair" to keystroke "t" using command down'
+run_osa "tell application \"System Events\" to tell process \"$PAIR_PROCESS\" to keystroke \"t\" using command down"
 sleep 2
 # Verify app survived
-if pgrep -x "Pair" > /dev/null 2>&1 || pgrep -f "PairApp" > /dev/null 2>&1; then
+if pgrep -x "$PAIR_PROCESS" > /dev/null 2>&1; then
     pass "Cmd+T didn't crash"
 else
     fail "Crashed on Cmd+T"
@@ -105,9 +122,9 @@ fi
 
 # ── Test 7: Cmd+W (close session) ──
 echo "Test 7: Cmd+W"
-run_osa 'tell application "System Events" to tell process "Pair" to keystroke "w" using command down'
+run_osa "tell application \"System Events\" to tell process \"$PAIR_PROCESS\" to keystroke \"w\" using command down"
 sleep 2
-if pgrep -x "Pair" > /dev/null 2>&1 || pgrep -f "PairApp" > /dev/null 2>&1; then
+if pgrep -x "$PAIR_PROCESS" > /dev/null 2>&1; then
     pass "Cmd+W didn't crash"
 else
     fail "Crashed on Cmd+W"
@@ -116,7 +133,11 @@ fi
 # ── Cleanup ──
 echo ""
 if [[ "${PAIR_UI_TEST_KILL:-0}" == "1" ]]; then
-    pkill -f Pair 2>/dev/null || true
+    if [[ -n "${PAIR_UI_TEST_PID:-}" ]]; then
+        kill "$PAIR_UI_TEST_PID" 2>/dev/null || true
+    else
+        pkill -x "$PAIR_PROCESS" 2>/dev/null || true
+    fi
 fi
 sleep 1
 
