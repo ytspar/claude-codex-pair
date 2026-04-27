@@ -43,7 +43,12 @@ extension ClaudeMonitor {
 
         switch decision {
         case .approve:
-            addTimeline(st, "APPROVED", response, source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
+            if isSelection || Self.isAcceptEditsPrompt(screenText) {
+                PairLog.info("[\(session.id)] APPROVE on interactive prompt — skipped; reviewer must use SELECT")
+                addTimeline(st, "SKIPPED", "APPROVE ignored on interactive prompt; expected SELECT: <number>", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
+            } else {
+                addTimeline(st, "APPROVED", response, source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
+            }
 
         case .wait:
             PairLog.info("[\(session.id)] Reviewer says WAIT")
@@ -77,7 +82,7 @@ extension ClaudeMonitor {
             PairLog.info("[\(session.id)] SELECT \(option) via arrow keys")
             addTimeline(st, "SELECT", "Selecting option \(option)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
             st.hadInteraction = true
-            session.selectOption(option)
+            session.selectOption(option, screenText: screenText)
 
         case .unknown(let text):
             let cleaned = Self.stripLearnings(text)

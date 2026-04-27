@@ -1,5 +1,6 @@
 import XCTest
 import Foundation
+@testable import PairApp
 
 /// Integration tests that verify the full Codex call pipeline using a mock codex CLI.
 /// These don't need real Claude or Codex credentials.
@@ -67,7 +68,7 @@ final class IntegrationTests: XCTestCase {
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
-        socketPath.withCString { ptr in
+        _ = socketPath.withCString { ptr in
             withUnsafeMutablePointer(to: &addr.sun_path) {
                 $0.withMemoryRebound(to: CChar.self, capacity: 104) { dest in
                     strcpy(dest, ptr)
@@ -131,6 +132,38 @@ final class IntegrationTests: XCTestCase {
         }
     }
 
+    // MARK: - Diff Context
+
+    func testGitDiffDetailIncludesStagedUnstagedAndUntrackedFiles() throws {
+        let repo = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pair-diff-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: repo) }
+
+        try runGit(["init"], cwd: repo)
+        try runGit(["config", "user.email", "pair-test@example.com"], cwd: repo)
+        try runGit(["config", "user.name", "Pair Test"], cwd: repo)
+
+        try "base\n".write(to: repo.appendingPathComponent("tracked.txt"), atomically: true, encoding: .utf8)
+        try runGit(["add", "tracked.txt"], cwd: repo)
+        try runGit(["commit", "-m", "initial"], cwd: repo)
+
+        try "base\nunstaged\n".write(to: repo.appendingPathComponent("tracked.txt"), atomically: true, encoding: .utf8)
+        try "staged\n".write(to: repo.appendingPathComponent("staged.swift"), atomically: true, encoding: .utf8)
+        try runGit(["add", "staged.swift"], cwd: repo)
+        try "let untracked = true\n".write(to: repo.appendingPathComponent("untracked.swift"), atomically: true, encoding: .utf8)
+
+        let detail = try XCTUnwrap(CodexIntegration.gitDiffDetail(cwd: repo.path))
+        XCTAssertTrue(detail.contains("--- GIT STATUS ---"))
+        XCTAssertTrue(detail.contains("--- STAGED DIFF ---"))
+        XCTAssertTrue(detail.contains("--- UNSTAGED DIFF ---"))
+        XCTAssertTrue(detail.contains("--- UNTRACKED FILES ---"))
+        XCTAssertTrue(detail.contains("staged.swift"))
+        XCTAssertTrue(detail.contains("tracked.txt"))
+        XCTAssertTrue(detail.contains("untracked.swift"))
+        XCTAssertTrue(detail.contains("let untracked = true"))
+    }
+
     // MARK: - Screen Hash Stability Detection
 
     func testFullDetectionCycle() {
@@ -189,5 +222,27 @@ final class IntegrationTests: XCTestCase {
         }
         let cleaned = responseText.trimmingCharacters(in: .whitespacesAndNewlines)
         return cleaned.isEmpty ? nil : cleaned
+    }
+
+    @discardableResult
+    private func runGit(_ args: [String], cwd: URL) throws -> String {
+        let process = Process()
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["git"] + args
+        process.currentDirectoryURL = cwd
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        try process.run()
+        process.waitUntilExit()
+
+        let output = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let error = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        if process.terminationStatus != 0 {
+            throw XCTSkip("git \(args.joined(separator: " ")) failed: \(error)")
+        }
+        return output
     }
 }

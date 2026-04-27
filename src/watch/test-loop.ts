@@ -6,19 +6,25 @@
  *
  * Usage: pair test-loop
  */
-import path from "node:path";
-import os from "node:os";
-import net from "node:net";
+
 import fs from "node:fs";
+import net from "node:net";
+import os from "node:os";
+import path from "node:path";
 
 const SOCKET = path.join(os.homedir(), ".claude-codex-pair", "pair-terminal.sock");
 const TOKEN_PATH = path.join(os.homedir(), ".claude-codex-pair", "auth-token");
 const PROJECT = process.cwd();
 const LOG_FILE = path.join(os.homedir(), ".claude-codex-pair", "pairapp.log");
+const CLAUDE_SESSIONS_DIR = path.join(os.homedir(), ".claude", "sessions");
+const QUEUE_E2E_CWD_PREFIX = "pair-queue-e2e-";
 
 function readAuthToken(): string {
-	try { return fs.readFileSync(TOKEN_PATH, "utf-8").trim(); }
-	catch { return ""; }
+	try {
+		return fs.readFileSync(TOKEN_PATH, "utf-8").trim();
+	} catch {
+		return "";
+	}
 }
 
 interface TestResult {
@@ -51,11 +57,26 @@ async function ipc(command: Record<string, unknown>): Promise<{ ok: boolean; res
 	return new Promise((resolve, reject) => {
 		const client = net.createConnection(SOCKET);
 		let data = "";
-		const timer = setTimeout(() => { client.destroy(); reject(new Error("IPC timeout")); }, 10000);
+		const timer = setTimeout(() => {
+			client.destroy();
+			reject(new Error("IPC timeout"));
+		}, 10000);
 		client.on("connect", () => client.write(JSON.stringify({ ...command, token: readAuthToken() })));
-		client.on("data", (d) => { data += d.toString(); });
-		client.on("end", () => { clearTimeout(timer); try { resolve(JSON.parse(data)); } catch { reject(new Error(`Bad response: ${data}`)); } });
-		client.on("error", (e) => { clearTimeout(timer); reject(e); });
+		client.on("data", (d) => {
+			data += d.toString();
+		});
+		client.on("end", () => {
+			clearTimeout(timer);
+			try {
+				resolve(JSON.parse(data));
+			} catch {
+				reject(new Error(`Bad response: ${data}`));
+			}
+		});
+		client.on("error", (e) => {
+			clearTimeout(timer);
+			reject(e);
+		});
 	});
 }
 
@@ -67,14 +88,16 @@ function simpleHash(s: string): number {
 	return h;
 }
 
-async function sleep(ms: number) { await new Promise(r => setTimeout(r, ms)); }
+async function sleep(ms: number) {
+	await new Promise((r) => setTimeout(r, ms));
+}
 
 /** Get recent log lines matching a pattern since a timestamp. */
 function recentLogs(pattern: string, since: number): string[] {
 	if (!fs.existsSync(LOG_FILE)) return [];
 	const content = fs.readFileSync(LOG_FILE, "utf-8");
 	const sinceStr = new Date(since).toISOString().slice(0, 19);
-	return content.split("\n").filter(l => {
+	return content.split("\n").filter((l) => {
 		if (!l.includes(pattern)) return false;
 		const match = l.match(/^\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/);
 		if (!match) return false;
@@ -82,29 +105,112 @@ function recentLogs(pattern: string, since: number): string[] {
 	});
 }
 
+interface QueueItemState {
+	id: string;
+	title: string;
+	prompt: string;
+	status: "pending" | "active" | "completed" | "failed";
+}
+
+interface QueueState {
+	isRunning: boolean;
+	pendingCount: number;
+	activeTitle: string | null;
+	items: QueueItemState[];
+}
+
+async function queueState(sessionId: string): Promise<QueueState> {
+	const resp = await ipc({ action: "queue_state", surface: sessionId });
+	if (!resp.ok) throw new Error(`queue_state failed: ${resp.error ?? "unknown error"}`);
+	if (!resp.result) throw new Error("queue_state returned no result");
+	return JSON.parse(resp.result) as QueueState;
+}
+
+async function waitForQueueState(
+	sessionId: string,
+	description: string,
+	condition: (state: QueueState) => boolean,
+	timeoutMs = 60000,
+): Promise<QueueState> {
+	const start = Date.now();
+	let lastState: QueueState | undefined;
+	while (Date.now() - start < timeoutMs) {
+		lastState = await queueState(sessionId);
+		if (condition(lastState)) return lastState;
+		await sleep(1000);
+	}
+	throw new Error(`Timeout waiting for queue state: ${description}; last=${JSON.stringify(lastState)}`);
+}
+
+function isProcessAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function cleanupClaudeSessionsByCwdPrefix(prefix: string): void {
+	if (!fs.existsSync(CLAUDE_SESSIONS_DIR)) return;
+
+	for (const file of fs.readdirSync(CLAUDE_SESSIONS_DIR)) {
+		if (!file.endsWith(".json")) continue;
+		const fullPath = path.join(CLAUDE_SESSIONS_DIR, file);
+		try {
+			const index = JSON.parse(fs.readFileSync(fullPath, "utf-8")) as { pid?: number; cwd?: string };
+			const cwd = index.cwd ?? "";
+			if (!path.basename(cwd).startsWith(prefix)) continue;
+
+			if (typeof index.pid === "number" && isProcessAlive(index.pid)) {
+				try {
+					process.kill(index.pid, "SIGTERM");
+				} catch {
+					/* already gone */
+				}
+			}
+			fs.rmSync(fullPath, { force: true });
+		} catch {
+			/* ignore malformed or concurrently removed session indexes */
+		}
+	}
+}
+
 // ── Test context: isolated session per test ───────────────────────────
 
 class TestContext {
 	readonly sessionId: string;
+	readonly project: string;
 
-	constructor() {
+	constructor(project = PROJECT) {
 		this.sessionId = `test-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+		this.project = project;
 	}
 
 	async setup(): Promise<boolean> {
-		const resp = await ipc({ action: "create_session", surface: this.sessionId, text: PROJECT });
+		const resp = await ipc({ action: "create_session", surface: this.sessionId, text: this.project });
 		if (!resp.ok) return false;
 		// Wait for Claude to start
 		for (let i = 0; i < 30; i++) {
 			await sleep(1000);
 			const screen = await this.readScreen();
+			if (
+				screen.includes("Yes, I trust this folder") ||
+				screen.includes("Is this a project you created or one you trust")
+			) {
+				await ipc({ action: "send_key", surface: this.sessionId, text: "enter" });
+				await sleep(3000);
+				continue;
+			}
 			if (screen.includes("❯") || screen.includes("Claude Code")) return true;
 		}
 		return false;
 	}
 
 	async teardown(): Promise<void> {
-		try { await ipc({ action: "remove_session", surface: this.sessionId }); } catch {}
+		try {
+			await ipc({ action: "remove_session", surface: this.sessionId });
+		} catch {}
 	}
 
 	async readScreen(): Promise<string> {
@@ -112,7 +218,11 @@ class TestContext {
 		return resp.ok ? (resp.result ?? "") : "";
 	}
 
-	async waitFor(description: string, condition: (screen: string) => boolean, timeoutMs = 60000): Promise<{ screen: string; elapsed: number }> {
+	async waitFor(
+		description: string,
+		condition: (screen: string) => boolean,
+		timeoutMs = 60000,
+	): Promise<{ screen: string; elapsed: number }> {
 		const start = Date.now();
 		while (Date.now() - start < timeoutMs) {
 			const screen = await this.readScreen();
@@ -126,16 +236,20 @@ class TestContext {
 		await ipc({ action: "pause_monitor", surface: this.sessionId });
 		await ipc({ action: "send_key", surface: this.sessionId, text: "ctrl-u" });
 		const baseline = simpleHash(await this.readScreen());
-		await ipc({ action: "send_input", surface: this.sessionId, text: prompt + "\r" });
+		await ipc({ action: "send_input", surface: this.sessionId, text: `${prompt}\r` });
 		await ipc({ action: "resume_monitor", surface: this.sessionId });
 		await this.waitFor("Claude starts working", (s) => simpleHash(s) !== baseline, timeoutMs);
 	}
 
 	async waitForPrompt(timeoutMs = 120000): Promise<string> {
-		const { screen } = await this.waitFor("❯ prompt", (s) => {
-			const lines = s.split("\n").slice(-6);
-			return lines.some(l => l.trim().startsWith("❯") || l.trim() === "❯");
-		}, timeoutMs);
+		const { screen } = await this.waitFor(
+			"❯ prompt",
+			(s) => {
+				const lines = s.split("\n").slice(-6);
+				return lines.some((l) => l.trim().startsWith("❯") || l.trim() === "❯");
+			},
+			timeoutMs,
+		);
 		return screen;
 	}
 }
@@ -150,7 +264,7 @@ class CodexTestContext {
 
 	async setup(): Promise<boolean> {
 		// Create session with :codex suffix to trigger codexLeads mode
-		const resp = await ipc({ action: "create_session", surface: this.sessionId + ":codex", text: PROJECT });
+		const resp = await ipc({ action: "create_session", surface: `${this.sessionId}:codex`, text: PROJECT });
 		if (!resp.ok) return false;
 		// Wait for Codex to start — look for › prompt or "OpenAI Codex" header
 		for (let i = 0; i < 40; i++) {
@@ -169,7 +283,9 @@ class CodexTestContext {
 	}
 
 	async teardown(): Promise<void> {
-		try { await ipc({ action: "remove_session", surface: this.sessionId }); } catch {}
+		try {
+			await ipc({ action: "remove_session", surface: this.sessionId });
+		} catch {}
 	}
 
 	async readScreen(): Promise<string> {
@@ -177,7 +293,11 @@ class CodexTestContext {
 		return resp.ok ? (resp.result ?? "") : "";
 	}
 
-	async waitFor(description: string, condition: (screen: string) => boolean, timeoutMs = 60000): Promise<{ screen: string; elapsed: number }> {
+	async waitFor(
+		description: string,
+		condition: (screen: string) => boolean,
+		timeoutMs = 60000,
+	): Promise<{ screen: string; elapsed: number }> {
 		const start = Date.now();
 		while (Date.now() - start < timeoutMs) {
 			const screen = await this.readScreen();
@@ -191,7 +311,7 @@ class CodexTestContext {
 	async type(prompt: string, timeoutMs = 60000): Promise<void> {
 		await ipc({ action: "pause_monitor", surface: this.sessionId });
 		const baseline = simpleHash(await this.readScreen());
-		await ipc({ action: "type_input", surface: this.sessionId, text: prompt + "\n" });
+		await ipc({ action: "type_input", surface: this.sessionId, text: `${prompt}\n` });
 		await ipc({ action: "resume_monitor", surface: this.sessionId });
 		await this.waitFor("Codex starts working", (s) => simpleHash(s) !== baseline, timeoutMs);
 	}
@@ -199,32 +319,45 @@ class CodexTestContext {
 	/** Wait for Codex to return to its › prompt. */
 	async waitForPrompt(timeoutMs = 120000): Promise<string> {
 		// Codex idle state: › on its own line with status bar below
-		const { screen } = await this.waitFor("› prompt", (s) => {
-			const lines = s.split("\n").filter(l => l.trim());
-			// Look for a bare › or › with placeholder text, plus the status bar
-			return lines.some(l => l.trim() === "›" || l.trim().startsWith("› ")) &&
-				lines.some(l => l.includes("default ·") || l.includes("gpt-"));
-		}, timeoutMs);
+		const { screen } = await this.waitFor(
+			"› prompt",
+			(s) => {
+				const lines = s.split("\n").filter((l) => l.trim());
+				// Look for a bare › or › with placeholder text, plus the status bar
+				return (
+					lines.some((l) => l.trim() === "›" || l.trim().startsWith("› ")) &&
+					lines.some((l) => l.includes("default ·") || l.includes("gpt-"))
+				);
+			},
+			timeoutMs,
+		);
 		return screen;
 	}
 }
 
 /** Run a test with a Codex-leads isolated session. */
-async function runCodexIsolated(name: string, timeoutMs: number, testFn: (ctx: CodexTestContext) => Promise<void>): Promise<void> {
+async function runCodexIsolated(
+	name: string,
+	timeoutMs: number,
+	testFn: (ctx: CodexTestContext) => Promise<void>,
+): Promise<void> {
 	const start = Date.now();
-	if (!await assertPairAppAlive()) {
+	if (!(await assertPairAppAlive())) {
 		fail(name, "PairApp crashed (IPC unreachable)", Date.now() - start);
 		return;
 	}
 	const ctx = new CodexTestContext();
 	try {
 		const ready = await ctx.setup();
-		if (!ready) { fail(name, "Codex session setup failed", Date.now() - start); return; }
+		if (!ready) {
+			fail(name, "Codex session setup failed", Date.now() - start);
+			return;
+		}
 
 		await Promise.race([
 			testFn(ctx),
 			new Promise<never>((_, reject) =>
-				setTimeout(() => reject(new Error(`Test timed out after ${timeoutMs / 1000}s`)), timeoutMs)
+				setTimeout(() => reject(new Error(`Test timed out after ${timeoutMs / 1000}s`)), timeoutMs),
 			),
 		]);
 	} catch (e) {
@@ -249,21 +382,29 @@ async function assertPairAppAlive(): Promise<boolean> {
 }
 
 /** Run a test with its own isolated session. Creates session, runs test fn, cleans up. */
-async function runIsolated(name: string, timeoutMs: number, testFn: (ctx: TestContext) => Promise<void>): Promise<void> {
+async function runIsolated(
+	name: string,
+	timeoutMs: number,
+	testFn: (ctx: TestContext) => Promise<void>,
+	options: { cwd?: string } = {},
+): Promise<void> {
 	const start = Date.now();
-	if (!await assertPairAppAlive()) {
+	if (!(await assertPairAppAlive())) {
 		fail(name, "PairApp crashed (IPC unreachable)", Date.now() - start);
 		return;
 	}
-	const ctx = new TestContext();
+	const ctx = new TestContext(options.cwd);
 	try {
 		const ready = await ctx.setup();
-		if (!ready) { fail(name, "Session setup failed", Date.now() - start); return; }
+		if (!ready) {
+			fail(name, "Session setup failed", Date.now() - start);
+			return;
+		}
 
 		await Promise.race([
 			testFn(ctx),
 			new Promise<never>((_, reject) =>
-				setTimeout(() => reject(new Error(`Test timed out after ${timeoutMs / 1000}s`)), timeoutMs)
+				setTimeout(() => reject(new Error(`Test timed out after ${timeoutMs / 1000}s`)), timeoutMs),
 			),
 		]);
 	} catch (e) {
@@ -296,9 +437,13 @@ async function testInjectAndCodexReview() {
 		log(`  Injected: "${testPrompt}"`);
 
 		// Wait for Claude to show test output
-		await ctx.waitFor("Swift test output", (s) => {
-			return s.includes("Executed") || s.includes("Build complete") || s.includes("passed");
-		}, 120000);
+		await ctx.waitFor(
+			"Swift test output",
+			(s) => {
+				return s.includes("Executed") || s.includes("Build complete") || s.includes("passed");
+			},
+			120000,
+		);
 		await ctx.waitForPrompt();
 		pass("Claude runs tests", `Completed`, Date.now() - start);
 
@@ -312,7 +457,11 @@ async function testInjectAndCodexReview() {
 		}
 		if (codexLogs.length > 0) {
 			const last = codexLogs[codexLogs.length - 1];
-			pass("Codex review", `Codex responded: ${last.substring(last.indexOf("Codex (")).substring(0, 80)}`, Date.now() - start);
+			pass(
+				"Codex review",
+				`Codex responded: ${last.substring(last.indexOf("Codex (")).substring(0, 80)}`,
+				Date.now() - start,
+			);
 		} else {
 			fail("Codex review", "No Codex response after 90s", Date.now() - start);
 		}
@@ -322,15 +471,20 @@ async function testInjectAndCodexReview() {
 async function testCodexAnswersQuestion() {
 	await runIsolated("Codex answers question", 180000, async (ctx) => {
 		const start = Date.now();
-		const prompt = "What files in app/PairApp/Sources/PairApp/ contain the word 'Codex'? List them and ask me which one to examine.";
+		const prompt =
+			"Ask me exactly this question and then wait for my answer: Which PairApp file should I inspect: CodexIntegration.swift or ClaudeMonitor.swift?";
 
 		await ctx.inject(prompt);
 
 		// Wait for Claude to ask a question
-		const { elapsed } = await ctx.waitFor("Claude asks question", (s) => {
-			const lines = s.split("\n").filter(l => l.trim());
-			return lines.slice(-10).some(l => l.trim().endsWith("?"));
-		}, 120000);
+		const { elapsed } = await ctx.waitFor(
+			"Claude asks question",
+			(s) => {
+				const lines = s.split("\n").filter((l) => l.trim());
+				return lines.slice(-10).some((l) => l.trim().endsWith("?"));
+			},
+			120000,
+		);
 		log(`  Claude asked question after ${(elapsed / 1000).toFixed(1)}s`);
 
 		// Wait for Codex to respond
@@ -348,15 +502,23 @@ async function testCodexAnswersQuestion() {
 async function testAcceptEditsFlow() {
 	await runIsolated("Accept-edits flow", 300000, async (ctx) => {
 		const start = Date.now();
-		const prompt = "Add a Swift comment '// test-loop: accept-edits validation' as the FIRST line of app/PairApp/Sources/PairApp/Version.swift, then immediately remove it and restore the original file.";
+		const prompt =
+			"Add a Swift comment '// test-loop: accept-edits validation' as the FIRST line of app/PairApp/Sources/PairApp/Version.swift, then immediately remove it and restore the original file.";
 		const logBefore = Date.now();
 
 		await ctx.inject(prompt);
 
-		await ctx.waitFor("Claude working on edit", (s) => {
-			return s.includes("accept-edits") || s.includes("test-loop") ||
-				(s.includes("Version.swift") && (s.includes("Edit") || s.includes("comment")));
-		}, 60000);
+		await ctx.waitFor(
+			"Claude working on edit",
+			(s) => {
+				return (
+					s.includes("accept-edits") ||
+					s.includes("test-loop") ||
+					(s.includes("Version.swift") && (s.includes("Edit") || s.includes("comment")))
+				);
+			},
+			60000,
+		);
 		await ctx.waitForPrompt(240000);
 
 		const selectLogs = recentLogs("SELECT", logBefore);
@@ -367,14 +529,19 @@ async function testAcceptEditsFlow() {
 async function testMultiStepPermissions() {
 	await runIsolated("Multi-step permissions", 300000, async (ctx) => {
 		const start = Date.now();
-		const prompt = "Read app/PairApp/Package.swift, then create a temporary file /tmp/pair-test-loop.txt with the package name from it, then run 'cat /tmp/pair-test-loop.txt' to verify, then delete it with rm.";
+		const prompt =
+			"Read app/PairApp/Package.swift, then create a temporary file /tmp/pair-test-loop.txt with the package name from it, then run 'cat /tmp/pair-test-loop.txt' to verify, then delete it with rm.";
 		const logBefore = Date.now();
 
 		await ctx.inject(prompt);
 
-		await ctx.waitFor("Claude using tools", (s) => {
-			return s.includes("Bash") || s.includes("Read") || s.includes("Write") || s.includes("pair-test-loop");
-		}, 60000);
+		await ctx.waitFor(
+			"Claude using tools",
+			(s) => {
+				return s.includes("Bash") || s.includes("Read") || s.includes("Write") || s.includes("pair-test-loop");
+			},
+			60000,
+		);
 		await ctx.waitForPrompt(240000);
 
 		const selectLogs = recentLogs("SELECT", logBefore);
@@ -382,17 +549,82 @@ async function testMultiStepPermissions() {
 	});
 }
 
+async function testTaskQueueRunsTwoTasksInOrder() {
+	const tempProject = fs.mkdtempSync(path.join(os.tmpdir(), QUEUE_E2E_CWD_PREFIX));
+	try {
+		await runIsolated(
+			"Task queue runs two tasks in order",
+			300000,
+			async (ctx) => {
+				const start = Date.now();
+				try {
+					const firstPrompt =
+						"Queue e2e task 1: reply with the exact token QUEUE_TASK_ONE_DONE. Do not use tools. Do not ask follow-up questions.";
+					const secondPrompt =
+						"Queue e2e task 2: reply with the exact token QUEUE_TASK_TWO_DONE. Do not use tools. Do not ask follow-up questions.";
+
+					await ctx.waitForPrompt();
+					await ipc({ action: "queue_clear", surface: ctx.sessionId });
+
+					const addFirst = await ipc({ action: "queue_add", surface: ctx.sessionId, text: firstPrompt });
+					if (!addFirst.ok) throw new Error(`queue_add first failed: ${addFirst.error ?? "unknown error"}`);
+					const addSecond = await ipc({ action: "queue_add", surface: ctx.sessionId, text: secondPrompt });
+					if (!addSecond.ok) throw new Error(`queue_add second failed: ${addSecond.error ?? "unknown error"}`);
+
+					const queued = await queueState(ctx.sessionId);
+					if (queued.pendingCount !== 2 || queued.items.some((item) => item.status !== "pending")) {
+						throw new Error(`Expected two pending tasks before start; got ${JSON.stringify(queued)}`);
+					}
+
+					const startQueue = await ipc({ action: "queue_start", surface: ctx.sessionId });
+					if (!startQueue.ok) throw new Error(`queue_start failed: ${startQueue.error ?? "unknown error"}`);
+
+					await ctx.waitFor("first queued task output", (s) => s.includes("QUEUE_TASK_ONE_DONE"), 120000);
+					await ctx.waitFor("second queued task output", (s) => s.includes("QUEUE_TASK_TWO_DONE"), 180000);
+					const finalState = await waitForQueueState(
+						ctx.sessionId,
+						"both tasks completed and queue stopped",
+						(state) =>
+							!state.isRunning && state.items.length === 2 && state.items.every((item) => item.status === "completed"),
+						60000,
+					);
+
+					if (!finalState.items[0].prompt.includes("QUEUE_TASK_ONE_DONE")) {
+						throw new Error(`First task order changed: ${JSON.stringify(finalState.items)}`);
+					}
+					if (!finalState.items[1].prompt.includes("QUEUE_TASK_TWO_DONE")) {
+						throw new Error(`Second task order changed: ${JSON.stringify(finalState.items)}`);
+					}
+
+					pass("Task queue runs two tasks in order", "Both queued prompts executed and completed", Date.now() - start);
+				} finally {
+					await ipc({ action: "queue_clear", surface: ctx.sessionId }).catch(() => {});
+				}
+			},
+			{ cwd: tempProject },
+		);
+	} finally {
+		cleanupClaudeSessionsByCwdPrefix(QUEUE_E2E_CWD_PREFIX);
+		fs.rmSync(tempProject, { recursive: true, force: true });
+	}
+}
+
 async function testNumberedListNotSelection() {
 	await runIsolated("Numbered list not selection", 180000, async (ctx) => {
 		const start = Date.now();
-		const prompt = "List all Swift files in app/PairApp/Sources/PairApp/ with line counts. Number them 1, 2, 3, etc. Do NOT ask follow-up questions — just output the numbered list.";
+		const prompt =
+			"List all Swift files in app/PairApp/Sources/PairApp/ with line counts. Number them 1, 2, 3, etc. Do NOT ask follow-up questions — just output the numbered list.";
 
 		await ctx.inject(prompt);
 
 		// Wait for numbered list output + prompt
-		await ctx.waitFor("Claude lists files", (s) => {
-			return s.includes(".swift") && (s.includes("1.") || s.includes("lines"));
-		}, 60000);
+		await ctx.waitFor(
+			"Claude lists files",
+			(s) => {
+				return s.includes(".swift") && (s.includes("1.") || s.includes("lines"));
+			},
+			60000,
+		);
 		await ctx.waitForPrompt();
 
 		// Pause, settle, then check classification of the idle screen
@@ -408,7 +640,11 @@ async function testNumberedListNotSelection() {
 		if (selTrue.length > 0 && selFalse.length === 0) {
 			fail("Numbered list not selection", `Classified as selection=true (${selTrue.length}x)`, Date.now() - start);
 		} else {
-			pass("Numbered list not selection", `${selFalse.length} selection=false, ${selTrue.length} selection=true`, Date.now() - start);
+			pass(
+				"Numbered list not selection",
+				`${selFalse.length} selection=false, ${selTrue.length} selection=true`,
+				Date.now() - start,
+			);
 		}
 	});
 }
@@ -416,19 +652,24 @@ async function testNumberedListNotSelection() {
 async function testConversationalQuestion() {
 	await runIsolated("Conversational question", 180000, async (ctx) => {
 		const start = Date.now();
-		const prompt = "Compare ClaudeMonitor.swift and ScreenDetection.swift. Which has better code organization? After your analysis, you MUST ask me a yes/no question about whether to proceed with changes. Do not skip the question.";
+		const prompt =
+			"Compare ClaudeMonitor.swift and ScreenDetection.swift. Which has better code organization? After your analysis, you MUST ask me a yes/no question about whether to proceed with changes. Do not skip the question.";
 
 		await ctx.inject(prompt);
 
 		// Wait for Claude to complete and return to prompt — whether or not it asks a ?
-		await ctx.waitFor("Claude responds", (s) => {
-			const lines = s.split("\n").filter(l => l.trim());
-			const tail = lines.slice(-10);
-			const hasPrompt = tail.some(l => l.trim().startsWith("❯") || l.trim() === "❯");
-			// Accept either: question mark above prompt, or just at prompt with output above
-			const hasContent = s.includes("ClaudeMonitor") || s.includes("ScreenDetection") || s.includes("organization");
-			return hasPrompt && hasContent;
-		}, 120000);
+		await ctx.waitFor(
+			"Claude responds",
+			(s) => {
+				const lines = s.split("\n").filter((l) => l.trim());
+				const tail = lines.slice(-10);
+				const hasPrompt = tail.some((l) => l.trim().startsWith("❯") || l.trim() === "❯");
+				// Accept either: question mark above prompt, or just at prompt with output above
+				const hasContent = s.includes("ClaudeMonitor") || s.includes("ScreenDetection") || s.includes("organization");
+				return hasPrompt && hasContent;
+			},
+			120000,
+		);
 
 		// Check classification
 		await ipc({ action: "pause_monitor", surface: ctx.sessionId });
@@ -443,7 +684,11 @@ async function testConversationalQuestion() {
 		if (selTrue.length > 0 && selFalse.length === 0) {
 			fail("Conversational question", `Classified as selection=true (${selTrue.length}x)`, Date.now() - start);
 		} else {
-			pass("Conversational question", `${selFalse.length} selection=false, Codex gave substantive response`, Date.now() - start);
+			pass(
+				"Conversational question",
+				`${selFalse.length} selection=false, Codex gave substantive response`,
+				Date.now() - start,
+			);
 		}
 	});
 }
@@ -460,7 +705,11 @@ async function testRealPermissionHandled() {
 		const selectLogs = recentLogs("Selection prompt, typing", logBefore);
 		const acceptLogs = recentLogs("Accepting edits", logBefore);
 		if (selectLogs.length > 0 || acceptLogs.length > 0) {
-			pass("Real permission handled", `${selectLogs.length} selections + ${acceptLogs.length} accept-edits`, Date.now() - start);
+			pass(
+				"Real permission handled",
+				`${selectLogs.length} selections + ${acceptLogs.length} accept-edits`,
+				Date.now() - start,
+			);
 		} else {
 			pass("Real permission handled", `Completed (permissions may have been pre-granted)`, Date.now() - start);
 		}
@@ -470,7 +719,8 @@ async function testRealPermissionHandled() {
 async function testStability() {
 	await runIsolated("Stability detection", 120000, async (ctx) => {
 		const start = Date.now();
-		const prompt = "List all .swift files in app/PairApp/Sources/PairApp/ with wc -l for each, then summarize the total. Do NOT ask any follow-up questions — just output the results.";
+		const prompt =
+			"List all .swift files in app/PairApp/Sources/PairApp/ with wc -l for each, then summarize the total. Do NOT ask any follow-up questions — just output the results.";
 		const logBefore = Date.now();
 
 		await ctx.inject(prompt);
@@ -482,7 +732,10 @@ async function testStability() {
 		while (Date.now() - pollStart < 30000) {
 			const screen = await ctx.readScreen();
 			const hash = simpleHash(screen);
-			if (hash !== lastHash) { screenHashes.push(hash); lastHash = hash; }
+			if (hash !== lastHash) {
+				screenHashes.push(hash);
+				lastHash = hash;
+			}
 			await sleep(500);
 		}
 
@@ -499,7 +752,11 @@ async function testUserInputProtection() {
 	try {
 		const check = await ipc({ action: "list_sessions" });
 		if (!check.ok) {
-			fail("User input protection", "PairApp not reachable (may have crashed during earlier tests)", Date.now() - start);
+			fail(
+				"User input protection",
+				"PairApp not reachable (may have crashed during earlier tests)",
+				Date.now() - start,
+			);
 			return;
 		}
 	} catch (e) {
@@ -554,21 +811,43 @@ async function testStructuredDecisionFormat() {
 			if (codexLogs.length > 0) break;
 		}
 
-		const structured = codexLogs.filter(l =>
-			l.includes("APPROVE") || l.includes("WAIT") || l.includes("ANSWER:") ||
-			l.includes("SELECT:") || l.includes("REDIRECT:") || l.includes("ESCALATE:")
+		const structured = codexLogs.filter(
+			(l) =>
+				l.includes("APPROVE") ||
+				l.includes("WAIT") ||
+				l.includes("ANSWER:") ||
+				l.includes("SELECT:") ||
+				l.includes("REDIRECT:") ||
+				l.includes("ESCALATE:"),
 		);
-		const freeform = codexLogs.filter(l =>
-			!l.includes("APPROVE") && !l.includes("WAIT") && !l.includes("ANSWER:") &&
-			!l.includes("SELECT:") && !l.includes("REDIRECT:") && !l.includes("ESCALATE:")
+		const freeform = codexLogs.filter(
+			(l) =>
+				!l.includes("APPROVE") &&
+				!l.includes("WAIT") &&
+				!l.includes("ANSWER:") &&
+				!l.includes("SELECT:") &&
+				!l.includes("REDIRECT:") &&
+				!l.includes("ESCALATE:"),
 		);
 
 		if (codexLogs.length === 0) {
-			fail("Codex uses structured decisions", "No Codex reviews within 60s — monitor may not have triggered stability", Date.now() - start);
+			fail(
+				"Codex uses structured decisions",
+				"No Codex reviews within 60s — monitor may not have triggered stability",
+				Date.now() - start,
+			);
 		} else if (structured.length > 0) {
-			pass("Codex uses structured decisions", `${structured.length}/${codexLogs.length} structured (${freeform.length} freeform fallback)`, Date.now() - start);
+			pass(
+				"Codex uses structured decisions",
+				`${structured.length}/${codexLogs.length} structured (${freeform.length} freeform fallback)`,
+				Date.now() - start,
+			);
 		} else {
-			fail("Codex uses structured decisions", `All ${codexLogs.length} responses were freeform — structured prompt may not be working`, Date.now() - start);
+			fail(
+				"Codex uses structured decisions",
+				`All ${codexLogs.length} responses were freeform — structured prompt may not be working`,
+				Date.now() - start,
+			);
 		}
 	});
 }
@@ -577,7 +856,8 @@ async function testWaitDecisionDoesNothing() {
 	await runIsolated("WAIT decision does nothing", 120000, async (ctx) => {
 		const start = Date.now();
 		// Prompt that makes Claude do a long operation — Codex should say WAIT
-		const prompt = "Read every Swift file in app/PairApp/Sources/PairApp/ and count the total lines across all files. Show your work.";
+		const prompt =
+			"Read every Swift file in app/PairApp/Sources/PairApp/ and count the total lines across all files. Show your work.";
 		const logBefore = Date.now();
 
 		await ctx.inject(prompt);
@@ -591,12 +871,24 @@ async function testWaitDecisionDoesNothing() {
 
 		// While Claude is working, Codex should ideally say WAIT (not inject feedback)
 		if (waitLogs.length > 0) {
-			pass("WAIT decision does nothing", `${waitLogs.length} WAIT decisions while Claude was working`, Date.now() - start);
+			pass(
+				"WAIT decision does nothing",
+				`${waitLogs.length} WAIT decisions while Claude was working`,
+				Date.now() - start,
+			);
 		} else if (feedbackLogs.length === 0) {
-			pass("WAIT decision does nothing", `No feedback injected while Claude was working (implicit wait)`, Date.now() - start);
+			pass(
+				"WAIT decision does nothing",
+				`No feedback injected while Claude was working (implicit wait)`,
+				Date.now() - start,
+			);
 		} else {
 			// Feedback was injected while working — not ideal but not a failure
-			pass("WAIT decision does nothing", `${feedbackLogs.length} feedback injected (Codex chose to intervene)`, Date.now() - start);
+			pass(
+				"WAIT decision does nothing",
+				`${feedbackLogs.length} feedback injected (Codex chose to intervene)`,
+				Date.now() - start,
+			);
 		}
 	});
 }
@@ -622,7 +914,11 @@ async function testConversationMemoryAccumulates() {
 		if (turnLogs.length > 0) {
 			pass("Conversation memory", `${turnLogs.length} conversation turns tracked`, Date.now() - start);
 		} else {
-			pass("Conversation memory", `${codexLogs.length} reviews across 2 turns (memory in prompt, not in log)`, Date.now() - start);
+			pass(
+				"Conversation memory",
+				`${codexLogs.length} reviews across 2 turns (memory in prompt, not in log)`,
+				Date.now() - start,
+			);
 		}
 	});
 }
@@ -660,18 +956,25 @@ async function testEscalateNotifiesUser() {
 		const start = Date.now();
 		const logBefore = Date.now();
 
-		// We can't easily trigger an ESCALATE from Codex, but we can verify the
-		// notification infrastructure works by checking the ESCALATE code path
-		// exists in the logs when decisions are parsed.
-		// Just verify the pipeline works end-to-end for a simple case.
-		await ctx.inject("echo 'hello world'");
 		await ctx.waitForPrompt(30000);
-		await sleep(10000);
+		const resp = await ipc({
+			action: "test_decision",
+			surface: ctx.sessionId,
+			text: "ESCALATE: deterministic e2e escalation check",
+		});
+		if (!resp.ok) {
+			fail("ESCALATE notifies user", `test_decision failed: ${resp.error}`, Date.now() - start);
+			return;
+		}
 
-		const codexLogs = recentLogs("Codex (", logBefore);
-		const skippedLogs = recentLogs("SKIPPED", logBefore);
+		await sleep(3000);
+		const escalateLogs = recentLogs("ESCALATED", logBefore).concat(recentLogs("ESCALATE", logBefore));
 
-		pass("ESCALATE notifies user", `Pipeline working: ${codexLogs.length} reviews, ${skippedLogs.length} skipped`, Date.now() - start);
+		if (escalateLogs.length > 0) {
+			pass("ESCALATE notifies user", `Escalation path exercised (${escalateLogs.length} logs)`, Date.now() - start);
+		} else {
+			fail("ESCALATE notifies user", "No escalation log after deterministic test_decision", Date.now() - start);
+		}
 	});
 }
 
@@ -691,9 +994,17 @@ async function testSelectHandlesPermission() {
 		const codexLogs = recentLogs("Codex (", logBefore);
 
 		if (selectLogs.length > 0 || selectionLogs.length > 0) {
-			pass("SELECT handles real permission", `${selectLogs.length} SELECT events, ${selectionLogs.length} selection prompts handled`, Date.now() - start);
+			pass(
+				"SELECT handles real permission",
+				`${selectLogs.length} SELECT events, ${selectionLogs.length} selection prompts handled`,
+				Date.now() - start,
+			);
 		} else {
-			pass("SELECT handles real permission", `Completed with ${codexLogs.length} reviews (permissions pre-granted)`, Date.now() - start);
+			pass(
+				"SELECT handles real permission",
+				`Completed with ${codexLogs.length} reviews (permissions pre-granted)`,
+				Date.now() - start,
+			);
 		}
 	});
 }
@@ -709,12 +1020,16 @@ async function testAnswerInjectsText() {
 
 		// Wait for Claude to ask a question
 		try {
-			await ctx.waitFor("Claude asks question", (s) => {
-				const lines = s.split("\n").filter(l => l.trim());
-				const tail = lines.slice(-8);
-				const hasPrompt = tail.some(l => l.trim().startsWith("❯") || l.trim() === "❯");
-				return hasPrompt && tail.some(l => l.trim().endsWith("?"));
-			}, 120000);
+			await ctx.waitFor(
+				"Claude asks question",
+				(s) => {
+					const lines = s.split("\n").filter((l) => l.trim());
+					const tail = lines.slice(-8);
+					const hasPrompt = tail.some((l) => l.trim().startsWith("❯") || l.trim() === "❯");
+					return hasPrompt && tail.some((l) => l.trim().endsWith("?"));
+				},
+				120000,
+			);
 
 			// Wait for Codex to answer
 			await sleep(20000);
@@ -726,14 +1041,26 @@ async function testAnswerInjectsText() {
 			if (answerLogs.length > 0) {
 				pass("ANSWER injects text", `Codex used ANSWER: format (${answerLogs.length} times)`, Date.now() - start);
 			} else if (feedbackLogs.length > 0) {
-				pass("ANSWER injects text", `Codex responded with feedback (${feedbackLogs.length}x) — may have used freeform`, Date.now() - start);
+				pass(
+					"ANSWER injects text",
+					`Codex responded with feedback (${feedbackLogs.length}x) — may have used freeform`,
+					Date.now() - start,
+				);
 			} else {
-				pass("ANSWER injects text", `${codexLogs.length} reviews — Claude may not have asked a clear question`, Date.now() - start);
+				pass(
+					"ANSWER injects text",
+					`${codexLogs.length} reviews — Claude may not have asked a clear question`,
+					Date.now() - start,
+				);
 			}
 		} catch {
 			// Claude didn't ask a question — that's OK, test the pipeline anyway
 			const codexLogs = recentLogs("Codex (", logBefore);
-			pass("ANSWER injects text", `Claude didn't ask a question, but ${codexLogs.length} reviews ran`, Date.now() - start);
+			pass(
+				"ANSWER injects text",
+				`Claude didn't ask a question, but ${codexLogs.length} reviews ran`,
+				Date.now() - start,
+			);
 		}
 	});
 }
@@ -747,11 +1074,26 @@ async function testAuthTokenRequired() {
 		const resp = await new Promise<{ ok: boolean; error?: string }>((resolve, reject) => {
 			const client = net.createConnection(SOCKET);
 			let data = "";
-			const timer = setTimeout(() => { client.destroy(); reject(new Error("timeout")); }, 5000);
+			const timer = setTimeout(() => {
+				client.destroy();
+				reject(new Error("timeout"));
+			}, 5000);
 			client.on("connect", () => client.write(JSON.stringify({ action: "list_sessions" }))); // no token
-			client.on("data", (d) => { data += d.toString(); });
-			client.on("end", () => { clearTimeout(timer); try { resolve(JSON.parse(data)); } catch { reject(new Error("bad response")); } });
-			client.on("error", (e) => { clearTimeout(timer); reject(e); });
+			client.on("data", (d) => {
+				data += d.toString();
+			});
+			client.on("end", () => {
+				clearTimeout(timer);
+				try {
+					resolve(JSON.parse(data));
+				} catch {
+					reject(new Error("bad response"));
+				}
+			});
+			client.on("error", (e) => {
+				clearTimeout(timer);
+				reject(e);
+			});
 		});
 
 		if (!resp.ok && resp.error?.includes("token")) {
@@ -785,47 +1127,52 @@ async function testDuplicateResponseSkipped() {
 		const skippedLogs = recentLogs("SKIPPED", logBefore);
 
 		if (dupLogs.length > 0 || repeatedLogs.length > 0) {
-			pass("Duplicate response skipped", `${dupLogs.length} duplicates + ${repeatedLogs.length} repeats caught out of ${codexLogs.length} reviews`, Date.now() - start);
+			pass(
+				"Duplicate response skipped",
+				`${dupLogs.length} duplicates + ${repeatedLogs.length} repeats caught out of ${codexLogs.length} reviews`,
+				Date.now() - start,
+			);
 		} else if (codexLogs.length <= 2) {
-			pass("Duplicate response skipped", `Only ${codexLogs.length} reviews — not enough to trigger duplicates`, Date.now() - start);
+			pass(
+				"Duplicate response skipped",
+				`Only ${codexLogs.length} reviews — not enough to trigger duplicates`,
+				Date.now() - start,
+			);
 		} else {
 			// Multiple reviews but no duplicates caught — Codex may have varied responses
-			pass("Duplicate response skipped", `${codexLogs.length} unique reviews, ${skippedLogs.length} skipped`, Date.now() - start);
+			pass(
+				"Duplicate response skipped",
+				`${codexLogs.length} unique reviews, ${skippedLogs.length} skipped`,
+				Date.now() - start,
+			);
 		}
 	});
 }
 
 async function testBackoffIncreasesAfterUnhelpful() {
-	await runIsolated("Backoff increases", 180000, async (ctx) => {
+	await runIsolated("Backoff increases", 60000, async (ctx) => {
 		const start = Date.now();
-		// Simple idle screen — Codex reviews will be unhelpful (nothing to do)
-		const prompt = "echo 'backoff test'";
-		const logBefore = Date.now();
+		let lastState: { streak: number; backoff: number } | undefined;
 
-		await ctx.inject(prompt);
-		await ctx.waitForPrompt(30000);
-
-		// Poll logs until we see backoff > 1.0x (outcomes are measured 30s after review,
-		// and we need 6+ unhelpful outcomes for backoff to kick in).
-		// Poll every 5s for up to 120s.
-		let maxBackoff = 1.0;
-		let unhelpfulCount = 0;
-		for (let i = 0; i < 24; i++) {
-			await sleep(5000);
-			const backoffLogs = recentLogs("backoff:", logBefore);
-			for (const l of backoffLogs) {
-				const match = l.match(/backoff:\s*([\d.]+)x/);
-				if (match) { const v = parseFloat(match[1]); if (v > maxBackoff) maxBackoff = v; }
+		for (let i = 0; i < 6; i++) {
+			const resp = await ipc({ action: "test_unhelpful", surface: ctx.sessionId });
+			if (!resp.ok) throw new Error(`test_unhelpful failed: ${resp.error ?? "unknown error"}`);
+			if (!resp.result) throw new Error("test_unhelpful returned no result");
+			lastState = JSON.parse(resp.result) as { streak: number; backoff: number };
+			if (i < 5 && lastState.backoff !== 1.0) {
+				throw new Error(`Backoff increased too early at streak ${lastState.streak}: ${lastState.backoff}`);
 			}
-			unhelpfulCount = recentLogs("unhelpful streak:", logBefore).length;
-			if (maxBackoff > 1.0) break; // Success — backoff increased
 		}
 
-		if (maxBackoff > 1.0) {
-			pass("Backoff increases", `Max backoff reached ${maxBackoff}x after ${unhelpfulCount} unhelpful reviews`, Date.now() - start);
-		} else {
-			fail("Backoff increases", `${unhelpfulCount} unhelpful reviews after ${((Date.now() - start) / 1000).toFixed(0)}s but backoff still 1.0x`, Date.now() - start);
+		if (!lastState || lastState.streak !== 6 || lastState.backoff <= 1.0) {
+			throw new Error(`Expected backoff > 1.0 at streak 6; got ${JSON.stringify(lastState)}`);
 		}
+
+		pass(
+			"Backoff increases",
+			`Backoff reached ${lastState.backoff}x at streak ${lastState.streak}`,
+			Date.now() - start,
+		);
 	});
 }
 
@@ -847,7 +1194,11 @@ async function testSanityBlocksDangerous() {
 		const skippedLogs = recentLogs("SKIPPED", logBefore);
 
 		// Sanity checks may or may not fire (depends on what Codex returns)
-		pass("Sanity blocks dangerous", `Pipeline ran: ${codexLogs.length} reviews, ${sanityLogs.length} sanity blocks, ${skippedLogs.length} skipped`, Date.now() - start);
+		pass(
+			"Sanity blocks dangerous",
+			`Pipeline ran: ${codexLogs.length} reviews, ${sanityLogs.length} sanity blocks, ${skippedLogs.length} skipped`,
+			Date.now() - start,
+		);
 	});
 }
 
@@ -855,7 +1206,8 @@ async function testErrorStateDetected() {
 	await runIsolated("Error state detection", 120000, async (ctx) => {
 		const start = Date.now();
 		// Trigger a command that will produce an error
-		const prompt = "Run 'swift build' in a directory that doesn't exist: cd /tmp/nonexistent-dir-pair-test && swift build";
+		const prompt =
+			"Run 'swift build' in a directory that doesn't exist: cd /tmp/nonexistent-dir-pair-test && swift build";
 		const logBefore = Date.now();
 
 		await ctx.inject(prompt);
@@ -870,10 +1222,18 @@ async function testErrorStateDetected() {
 
 		// Check if the error state was detected in screen parsing
 		if (errorLogs.length > 0 || stuckLogs.length > 0) {
-			pass("Error state detection", `Error state detected: ${errorLogs.length} showingError, ${stuckLogs.length} isStuck`, Date.now() - start);
+			pass(
+				"Error state detection",
+				`Error state detected: ${errorLogs.length} showingError, ${stuckLogs.length} isStuck`,
+				Date.now() - start,
+			);
 		} else {
 			// Claude may have handled the error gracefully without triggering our error detection
-			pass("Error state detection", `Claude handled error gracefully — ${codexLogs.length} reviews ran`, Date.now() - start);
+			pass(
+				"Error state detection",
+				`Claude handled error gracefully — ${codexLogs.length} reviews ran`,
+				Date.now() - start,
+			);
 		}
 	});
 }
@@ -882,7 +1242,8 @@ async function testLongTaskNoPreemptiveIntervention() {
 	await runIsolated("Long task no preemptive intervention", 180000, async (ctx) => {
 		const start = Date.now();
 		// A task that makes Claude read multiple files — takes a while
-		const prompt = "Read the first 20 lines of each Swift file in app/PairApp/Sources/PairApp/ and summarize the purpose of each file in one sentence. Do NOT ask questions.";
+		const prompt =
+			"Read the first 20 lines of each Swift file in app/PairApp/Sources/PairApp/ and summarize the purpose of each file in one sentence. Do NOT ask questions.";
 
 		await ctx.inject(prompt);
 
@@ -900,7 +1261,7 @@ async function testLongTaskNoPreemptiveIntervention() {
 			}
 			// Check if Claude returned to prompt
 			const lines = screen.split("\n").slice(-6);
-			if (lines.some(l => l.trim().startsWith("❯") || l.trim() === "❯")) break;
+			if (lines.some((l) => l.trim().startsWith("❯") || l.trim() === "❯")) break;
 			await sleep(2000);
 		}
 
@@ -909,7 +1270,11 @@ async function testLongTaskNoPreemptiveIntervention() {
 		if (injectedWhileWorking.length === 0) {
 			pass("Long task no preemptive intervention", `No premature injections during work`, Date.now() - start);
 		} else {
-			fail("Long task no preemptive intervention", `${injectedWhileWorking.length} injections while Claude was actively working`, Date.now() - start);
+			fail(
+				"Long task no preemptive intervention",
+				`${injectedWhileWorking.length} injections while Claude was actively working`,
+				Date.now() - start,
+			);
 		}
 	});
 }
@@ -971,7 +1336,11 @@ async function testCodexSessionStarts() {
 		const hasStatus = screen.includes("gpt-") || screen.includes("default ·");
 
 		if (hasPrompt) {
-			pass("Codex session starts", `Codex TUI running (header=${hasHeader}, prompt=${hasPrompt}, status=${hasStatus})`, Date.now() - start);
+			pass(
+				"Codex session starts",
+				`Codex TUI running (header=${hasHeader}, prompt=${hasPrompt}, status=${hasStatus})`,
+				Date.now() - start,
+			);
 		} else {
 			fail("Codex session starts", `Codex TUI not detected. Screen: ${screen.substring(0, 200)}`, Date.now() - start);
 		}
@@ -986,9 +1355,13 @@ async function testCodexAcceptsTypedInput() {
 		await ctx.type("What directory are we in? Just show the path.");
 
 		// Wait for Codex to show output (bullet point or tool output)
-		await ctx.waitFor("Codex produces output", (s) => {
-			return s.includes("•") || s.includes("claude-codex-pair") || s.includes("/Users/");
-		}, 60000);
+		await ctx.waitFor(
+			"Codex produces output",
+			(s) => {
+				return s.includes("•") || s.includes("claude-codex-pair") || s.includes("/Users/");
+			},
+			60000,
+		);
 
 		// Wait for return to prompt
 		await ctx.waitForPrompt(60000);
@@ -1018,7 +1391,11 @@ async function testCodexScreenDetectionWorks() {
 		// In Codex-leads mode, the REVIEWER is Claude, not Codex
 		// So we look for Claude review responses
 		if (codexLogs.length > 0 || reviewLogs.length > 0) {
-			pass("Codex screen detection", `Monitor detected Codex states: ${reviewLogs.length} reviews, ${codexLogs.length} responses`, Date.now() - start);
+			pass(
+				"Codex screen detection",
+				`Monitor detected Codex states: ${reviewLogs.length} reviews, ${codexLogs.length} responses`,
+				Date.now() - start,
+			);
 		} else {
 			// Even without reviews, if Codex completed the task, detection worked
 			pass("Codex screen detection", `Codex completed task (monitor may not have reviewed yet)`, Date.now() - start);
@@ -1052,7 +1429,11 @@ async function testCodexLeadsClaudeReviews() {
 		} else if (reviewLogs.length > 0) {
 			pass("Claude reviews Codex work", `${reviewLogs.length} reviews triggered`, Date.now() - start);
 		} else {
-			pass("Claude reviews Codex work", `Codex completed (Claude review may not have triggered in time)`, Date.now() - start);
+			pass(
+				"Claude reviews Codex work",
+				`Codex completed (Claude review may not have triggered in time)`,
+				Date.now() - start,
+			);
 		}
 	});
 }
@@ -1073,7 +1454,10 @@ async function testCodexModeUsesTypeInput() {
 		for (let i = 0; i < 10; i++) {
 			await sleep(1000);
 			const screen = await ctx.readScreen();
-			if (simpleHash(screen) !== hash1) { changed = true; break; }
+			if (simpleHash(screen) !== hash1) {
+				changed = true;
+				break;
+			}
 		}
 
 		if (changed) {
@@ -1092,7 +1476,8 @@ async function testCodexSidebarLabels() {
 		let screen = "";
 		for (let i = 0; i < 15; i++) {
 			screen = await ctx.readScreen();
-			if (screen.length > 50 && (screen.includes("›") || screen.includes("OpenAI Codex") || screen.includes("gpt-"))) break;
+			if (screen.length > 50 && (screen.includes("›") || screen.includes("OpenAI Codex") || screen.includes("gpt-")))
+				break;
 			await sleep(1000);
 		}
 
@@ -1100,11 +1485,19 @@ async function testCodexSidebarLabels() {
 		const isClaude = screen.includes("Claude Code") || screen.includes("❯");
 
 		if (isCodex && !isClaude) {
-			pass("Codex sidebar labels", `Codex in terminal (not Claude) — sidebar shows 'Claude reviewing'`, Date.now() - start);
+			pass(
+				"Codex sidebar labels",
+				`Codex in terminal (not Claude) — sidebar shows 'Claude reviewing'`,
+				Date.now() - start,
+			);
 		} else if (isCodex && isClaude) {
 			fail("Codex sidebar labels", "Both Codex and Claude detected — mode confusion", Date.now() - start);
 		} else {
-			fail("Codex sidebar labels", `Neither detected after 15s. Screen (${screen.length} chars): ${screen.substring(0, 100)}`, Date.now() - start);
+			fail(
+				"Codex sidebar labels",
+				`Neither detected after 15s. Screen (${screen.length} chars): ${screen.substring(0, 100)}`,
+				Date.now() - start,
+			);
 		}
 	});
 }
@@ -1123,7 +1516,10 @@ async function cleanupOldTestSessions() {
 				await ipc({ action: "remove_session", surface: s.id });
 			}
 		}
-	} catch { /* non-fatal */ }
+	} catch {
+		/* non-fatal */
+	}
+	cleanupClaudeSessionsByCwdPrefix(QUEUE_E2E_CWD_PREFIX);
 }
 
 export async function runTestLoop(): Promise<void> {
@@ -1145,6 +1541,8 @@ export async function runTestLoop(): Promise<void> {
 		testCodexAnswersQuestion,
 		testAcceptEditsFlow,
 		testMultiStepPermissions,
+		// Queue behavior
+		testTaskQueueRunsTwoTasksInOrder,
 		// Selection behavior
 		testNumberedListNotSelection,
 		testConversationalQuestion,
@@ -1177,13 +1575,22 @@ export async function runTestLoop(): Promise<void> {
 		testUserInputProtection,
 	];
 
-	for (const test of tests) {
+	const filter = process.env.PAIR_TEST_FILTER?.toLowerCase();
+	const selectedTests = filter ? tests.filter((test) => test.name.toLowerCase().includes(filter)) : tests;
+	if (filter) {
+		log(`Filter: ${filter} (${selectedTests.length}/${tests.length} tests selected)`);
+	}
+	if (selectedTests.length === 0) {
+		fail("Test selection", `No tests matched PAIR_TEST_FILTER=${filter}`, 0);
+	}
+
+	for (const test of selectedTests) {
 		// Abort remaining tests if PairApp crashed
-		if (!await assertPairAppAlive()) {
-			const remaining = tests.length - tests.indexOf(test);
+		if (!(await assertPairAppAlive())) {
+			const remaining = selectedTests.length - selectedTests.indexOf(test);
 			log(`  ⚠ PairApp crashed — skipping ${remaining} remaining tests`);
-			for (let i = tests.indexOf(test); i < tests.length; i++) {
-				fail(tests[i].name || `test-${i}`, "PairApp crashed", 0);
+			for (let i = selectedTests.indexOf(test); i < selectedTests.length; i++) {
+				fail(selectedTests[i].name || `test-${i}`, "PairApp crashed", 0);
 			}
 			break;
 		}
@@ -1191,8 +1598,8 @@ export async function runTestLoop(): Promise<void> {
 	}
 
 	// Summary
-	const passed = results.filter(r => r.passed).length;
-	const failed = results.filter(r => !r.passed).length;
+	const passed = results.filter((r) => r.passed).length;
+	const failed = results.filter((r) => !r.passed).length;
 	const total = results.length;
 	const totalTime = results.reduce((sum, r) => sum + r.durationMs, 0);
 
@@ -1202,7 +1609,7 @@ export async function runTestLoop(): Promise<void> {
 	if (failed > 0) {
 		log("");
 		log("Failures:");
-		for (const r of results.filter(r => !r.passed)) {
+		for (const r of results.filter((r) => !r.passed)) {
 			log(`  ✗ ${r.name}: ${r.detail}`);
 		}
 	}

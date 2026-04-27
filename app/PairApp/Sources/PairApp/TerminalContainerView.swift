@@ -116,6 +116,7 @@ struct TerminalContainerView: NSViewRepresentable {
         var keyMonitor: Any?
         var mouseMonitor: Any?
         var lastAppliedThemeMode: ThemeManager.ThemeMode?
+        private var typedPromptBuffer = ""
 
         init(session: PairSession) {
             self.session = session
@@ -126,6 +127,7 @@ struct TerminalContainerView: NSViewRepresentable {
                       termView.window?.firstResponder === termView else { return event }
                 self.session.lastInputSource = .user
                 self.session.lastUserInputTime = Date()
+                self.recordPotentialPromptKey(event)
                 return event
             }
 
@@ -147,6 +149,37 @@ struct TerminalContainerView: NSViewRepresentable {
                     }
                 }
                 return event
+            }
+        }
+
+        private func recordPotentialPromptKey(_ event: NSEvent) {
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if flags.contains(.command) || flags.contains(.control) || flags.contains(.option) {
+                return
+            }
+
+            if event.keyCode == 36 { // Return
+                session.recordOperatorPrompt(typedPromptBuffer, source: "keyboard")
+                typedPromptBuffer = ""
+                return
+            }
+
+            if event.keyCode == 51 { // Delete/backspace
+                if !typedPromptBuffer.isEmpty { typedPromptBuffer.removeLast() }
+                return
+            }
+
+            guard let chars = event.characters, !chars.isEmpty else { return }
+            for ch in chars {
+                if ch == "\r" || ch == "\n" {
+                    session.recordOperatorPrompt(typedPromptBuffer, source: "keyboard")
+                    typedPromptBuffer = ""
+                } else if !ch.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7F }) {
+                    typedPromptBuffer.append(ch)
+                    if typedPromptBuffer.count > 1200 {
+                        typedPromptBuffer = String(typedPromptBuffer.suffix(1200))
+                    }
+                }
             }
         }
 

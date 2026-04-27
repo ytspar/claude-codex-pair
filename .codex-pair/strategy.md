@@ -1,33 +1,27 @@
 # Codex Strategy for claude-codex-pair
-Updated: 2026-04-16 09:30
+Updated: 2026-04-27 12:04
 
 ## Effectiveness
 - Total interventions: 50
-- Improved: 8 (16%)
+- Improved: 1 (2%)
 - Regressed: 0 (0%)
-- Loop detections: 16
-- Avg review duration: 17808ms
+- Loop detections: 6
+- Avg review duration: 15271ms
 
 ## What Worked
-- REDIRECT: Good progress. Commit what you have so far with a descriptive message, making sure all new
-- ANSWER: CodexDecision.swift
-
-LEARN: When Claude offers a numbered file list for inspection, answer b
-- REDIRECT: You’re back at an idle prompt with uncommitted work. Make the checkpoint commit now: run `
-- REDIRECT: Stop inspecting files and make the checkpoint commit now. Run `git status --short`, then `
-- REDIRECT: Stop inspecting files. You’re at an idle prompt with uncommitted work and the inspection l
+- APPROVE
 
 ## Pending Improvements (auto-queued as tasks)
-- Add an idle-prompt detector that, after any file summary, checks for uncommitted changes and automatically injects a checkpoint-commit redirect instead of allowing another inspection prompt.
-- Add an idle-prompt guard that detects “What would you like to do with this file?” after a summary, checks for uncommitted changes, and automatically replaces further inspection with a checkpoint-commit redirect.
-- Add an idle-prompt guard that detects post-summary prompts like “What would you like to do with this file?” and, if `git status --short` is non-empty, automatically injects a checkpoint-commit redirect instead of allowing another inspection cycle.
-- Add an idle-prompt guard that detects post-summary prompts like “What would you like to do with this file?” and, if `git status --short` is non-empty, automatically injects a checkpoint-commit redirect instead of allowing another inspection cycle.
-- Add an idle-prompt loop breaker that detects repeated post-summary prompts like “What would you like to do with this file?”, checks `git status --short`, and automatically injects a checkpoint-commit command instead of allowing another file inspection cycle.
-- Add a post-summary idle guard that detects prompts like “What would you like to do with this file?”, checks whether `git status --short` is non-empty, and auto-injects a checkpoint-commit command instead of allowing another file-inspection cycle.
-- Add a post-summary idle hook that detects prompts like “What would you like to do with this file?”, runs `git status --short`, and auto-injects a checkpoint-commit redirect when the worktree is dirty.
-- Add a post-summary idle guard that detects prompts like “What would you like to do with this file?”, checks whether `git status --short` is non-empty, and auto-injects a checkpoint-commit redirect instead of allowing another file-inspection cycle.
-- Add a post-summary handler that rewrites prompts like “What would you like to do with this file?” into a direct action answer when `git status --short` is non-empty, preferring a checkpoint commit over further file browsing.
-- Add a post-summary idle interceptor that detects prompts like “What would you like to do with this file?”, runs `git status --short`, and auto-replaces the prompt with a checkpoint-commit action when changes are pending.
+- Add a hard pre-ingest `NOOP_STOP` guard for startup banner + `WAIT` + `⏺ Waiting.` + clean final `❯` before classification, menu rendering, loop tracking, decision history, or context writes.
+- Implement the pre-ingest `NOOP_STOP` guard now: startup banner + `WAIT` + `⏺ Waiting.` + clean final `❯` must be dropped before classification, menu rendering, loop tracking, decision history, or context writes.
+- Add a pre-ingest `NOOP_STOP` quarantine for startup banner + `WAIT` + `⏺ Waiting.` + clean final `❯`, before classification, menu rendering, loop tracking, decision history, or context writes.
+- Implement the pre-ingest `NOOP_STOP` guard now: startup banner + `WAIT` + `⏺ Waiting.` + clean final `❯` must be dropped before classification, menu rendering, loop tracking, decision history, or context writes.
+- Add the pre-ingest `NOOP_STOP` guard before classification, menu rendering, loop tracking, decision history, or context writes.
+- Add a pre-ingest `NOOP_STOP` quarantine for this exact idle pattern before classification, menu rendering, loop tracking, decision history, or context writes.
+- Add a hard pre-ingest `NOOP_STOP` quarantine for this exact pattern before classification, menu rendering, loop tracking, decision history, or context writes.
+- Add a screen-detector heuristic that recognizes Codex CLI JSON error envelopes (`■ {"type":"error"...}`) and auto-escalates with the parsed `error.message`, so we don't waste decisions retrying against a broken model/CLI configuration.
+- Add a hard-error detector in ScreenParser/CodexDecision that recognizes `■ {"type":"error","status":<4xx/5xx>"` lines as terminal upstream errors and surfaces a single ESCALATE with a one-time notification (e.g., macOS notification + halts re-decision loop) instead of re-evaluating every poll cycle.
+- Add a hard-error deduplication layer in CodexDecision/FeedbackHandler: when the screen contains a `■ {"type":"error","status":4xx,...}` line and the parsed error message matches the previous turn's, short-circuit to a single "human required" notification (e.g., macOS notification + ledger entry) instead of re-running the LLM decision loop. Pattern key: hash of the error JSON. Reset on any terminal-output change.
 
 
 ## Unmatched Prompt Patterns (improve detection heuristics)

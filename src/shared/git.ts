@@ -84,3 +84,12 @@ export async function gitStagedDiff(cwd: string): Promise<string> {
 		return "";
 	}
 }
+
+export async function gitStatusShort(cwd: string): Promise<string> {
+	try {
+		const { stdout } = await execFile("git", ["status", "--short"], { cwd });
+		return stdout.trimEnd();
+	} catch {
+		return "";
+	}
+}

@@ -38,22 +38,33 @@ enum ScreenDetection {
     }
 
     static func isPromptEmpty(_ screenText: String) -> Bool {
-        let lines = screenText.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let lines = screenText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         if lines.contains(where: { $0.contains("[Pasted text") }) { return false }
-        guard let lastNonEmpty = lines.last(where: { !$0.isEmpty }) else { return true }
-        // Strip cursor/block characters for clean comparison
-        let stripped = String(lastNonEmpty.unicodeScalars.filter { ($0.value >= 0x20 && $0.value < 0x2500) || $0.value >= 0x25A0 || $0 == " " })
-            .trimmingCharacters(in: .whitespaces)
-        if let range = stripped.range(of: "❯") {
-            return stripped[range.upperBound...].trimmingCharacters(in: .whitespaces).isEmpty
+
+        // Claude can render footer/rule lines below the prompt. Scan the tail for
+        // the actual prompt line instead of trusting the last visible line.
+        for rawLine in lines.suffix(10).reversed() {
+            let stripped = String(rawLine.unicodeScalars.filter {
+                ($0.value >= 0x20 && $0.value < 0x2500) || $0.value >= 0x25A0 || $0 == " "
+            })
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if let range = stripped.range(of: "❯") {
+                return stripped[range.upperBound...].trimmingCharacters(in: .whitespaces).isEmpty
+            }
+            if let range = rawLine.range(of: "❯") {
+                return rawLine[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+
+            let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed == ">" { return true }
+            if trimmed.hasPrefix(">") {
+                return trimmed.dropFirst().trimmingCharacters(in: .whitespaces).isEmpty
+            }
         }
-        if stripped.hasSuffix(">") || stripped == ">" || stripped.hasSuffix("> ") { return true }
-        // Also check original in case ❯ is in the raw text
-        if let range = lastNonEmpty.range(of: "❯") {
-            return lastNonEmpty[range.upperBound...].trimmingCharacters(in: .whitespaces).isEmpty
-        }
-        if lastNonEmpty.hasSuffix(">") || lastNonEmpty.hasSuffix("> ") { return true }
-        return true
+
+        // No prompt marker found: do not inject.
+        return false
     }
 
     static func isAtClaudePrompt(_ screenText: String) -> Bool {
@@ -93,8 +104,6 @@ enum ScreenDetection {
             || lower.contains("allow claude to edit")
             || lower.contains("allow edit to")
             || lower.contains("wants to edit")
-            || lower.contains("do you want to create")
-            || lower.contains("do you want to delete")
             || lower.contains("allow all edits during this session")
             || (lower.contains("edit") && lower.contains("allow") && lower.contains("deny"))
     }

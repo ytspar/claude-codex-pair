@@ -139,6 +139,26 @@ final class ClaudeMonitorTests: XCTestCase {
         XCTAssertFalse(ClaudeMonitor.isSelectionPrompt(screen))
     }
 
+    func testPromptEmptyDetectsTextBeforeFooter() {
+        let screen = """
+        Claude Code v2.1.85
+        Done.
+        ❯ user is typing
+        ─────────────────────────
+        """
+        XCTAssertFalse(ScreenDetection.isPromptEmpty(screen))
+    }
+
+    func testPromptEmptyDetectsEmptyPromptBeforeFooter() {
+        let screen = """
+        Claude Code v2.1.85
+        Done.
+        ❯
+        ─────────────────────────
+        """
+        XCTAssertTrue(ScreenDetection.isPromptEmpty(screen))
+    }
+
     func testScreenChangeDetected() {
         var hashes: [Int] = []
         var stableCount = 0
@@ -244,6 +264,27 @@ final class ClaudeMonitorTests: XCTestCase {
         session.selectOption(3)
         XCTAssertEqual(session.arrowDownCounts, [0, 2],
                        "Option 3 should send 2 arrow downs")
+    }
+
+    func testCurrentSelectionIndexFromMarker() {
+        let screen = """
+        Do you want to proceed?
+          Yes
+        ❯ No
+          Cancel
+        """
+        XCTAssertEqual(PairSession.currentSelectionIndex(in: screen), 2)
+    }
+
+    func testCurrentSelectionIndexFromNumberedMarker() {
+        let screen = """
+        Do you trust this directory?
+          1. Yes, continue
+        › 2. No, quit
+          Press enter to continue
+        """
+        XCTAssertEqual(PairSession.currentSelectionIndex(in: screen), 2)
+        XCTAssertEqual(PairSession.selectionOptionCount(in: screen), 2)
     }
 
     // MARK: - Screen Change Detection

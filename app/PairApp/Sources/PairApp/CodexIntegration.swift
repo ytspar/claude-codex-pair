@@ -17,7 +17,8 @@ enum CodexIntegration {
     /// All instance state that `ClaudeMonitor` formerly accessed is passed in explicitly.
     static func callCodex(screenText: String, cwd: String, claudeLooping: Bool = false,
                            repeatCount: Int = 0, codexTimeoutSec: Double = 30,
-                           parsedScreen: ParsedScreen? = nil, conversationSummary: String = "") -> CodexResult {
+                           parsedScreen: ParsedScreen? = nil, conversationSummary: String = "",
+                           goalContext: String = "") -> CodexResult {
         PairLog.info(">>> callCodex entered (cwd=\(cwd), screen=\(screenText.count) chars)")
         let lastLines = screenText.split(separator: "\n").suffix(20).joined(separator: "\n")
         let screen = parsedScreen ?? ScreenParser.parse(screenText)
@@ -94,6 +95,23 @@ enum CodexIntegration {
             conversationBlock = "\nRECENT CONVERSATION:\n\(conversationSummary)\n"
         }
 
+        var goalBlock = ""
+        if !goalContext.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            goalBlock = "\n--- ACTIVE GOAL / ACCEPTANCE CRITERIA ---\n\(goalContext)\n"
+        }
+
+        var stateHints = ""
+        if screen.state == .selectionMenu || screen.state == .permissionPrompt || screen.state == .acceptEdits {
+            stateHints += """
+            \nThis is an interactive menu. Respond with SELECT: <number> to choose an option.
+            For permission prompts, prefer the most permissive safe option, but reject or redirect if the visible action is wrong or dangerous.
+            For accept-edits prompts, inspect the goal and diff context before selecting; do not blindly approve.
+            """
+        }
+        if screen.state == .askingQuestion {
+            stateHints += "\nClaude is asking you a question. Respond with ANSWER: <your response>."
+        }
+
         let prompt = """
         You are the human operator sitting at a terminal running Claude Code. \
         You see the terminal output below. Decide what to do — exactly like a \
@@ -101,10 +119,14 @@ enum CodexIntegration {
 
         \(stateBlock)
         \(conversationBlock)
-        \(contextBlock)\(diffBlock)\(commitBlock)\(loopWarning)
+        \(goalBlock)\(contextBlock)\(diffBlock)\(commitBlock)\(loopWarning)
         --- BEGIN TERMINAL OUTPUT ---
         \(lastLines)
         --- END TERMINAL OUTPUT ---
+
+        Use ACTIVE GOAL / ACCEPTANCE CRITERIA as the primary source of truth.
+        If the goal is absent or insufficient to verify completion, prefer ESCALATE
+        rather than guessing that the task is done.
 
         Look at the terminal and respond with ONE of these:
         - WAIT — if Claude is still working or thinking, do nothing
@@ -115,6 +137,7 @@ enum CodexIntegration {
         - ANSWER: <text> — if Claude asked you a question, answer it naturally
         - REDIRECT: <instructions> — if Claude is going in the wrong direction
         - ESCALATE: <reason> — if something looks dangerous or you're unsure
+        \(stateHints)
 
         You may append extra lines after your decision:
         - LEARN: <observation> — A pattern worth remembering for future reviews.
@@ -237,12 +260,64 @@ enum CodexIntegration {
     // MARK: - Git helpers
 
     static func gitDiffSummary(cwd: String) -> String? {
-        CodexLedger.runGit(["diff", "--stat", "--no-color"], cwd: cwd)
+        var parts: [String] = []
+        if let status = CodexLedger.runGit(["status", "--short"], cwd: cwd) {
+            parts.append("STATUS:\n\(status)")
+        }
+        if let staged = CodexLedger.runGit(["diff", "--cached", "--stat", "--no-color"], cwd: cwd) {
+            parts.append("STAGED:\n\(staged)")
+        }
+        if let unstaged = CodexLedger.runGit(["diff", "--stat", "--no-color"], cwd: cwd) {
+            parts.append("UNSTAGED:\n\(unstaged)")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
     }
 
     static func gitDiffDetail(cwd: String) -> String? {
-        guard let full = CodexLedger.runGit(["diff", "--no-color", "-U2"], cwd: cwd) else { return nil }
-        return full.count > 2000 ? String(full.prefix(2000)) + "\n... (diff truncated)" : full
+        var parts: [String] = []
+        if let status = CodexLedger.runGit(["status", "--short"], cwd: cwd) {
+            parts.append("--- GIT STATUS ---\n\(status)")
+        }
+        if let staged = CodexLedger.runGit(["diff", "--cached", "--no-color", "-U2"], cwd: cwd) {
+            parts.append("--- STAGED DIFF ---\n\(staged)")
+        }
+        if let unstaged = CodexLedger.runGit(["diff", "--no-color", "-U2"], cwd: cwd) {
+            parts.append("--- UNSTAGED DIFF ---\n\(unstaged)")
+        }
+        if let untracked = untrackedFileDetails(cwd: cwd) {
+            parts.append(untracked)
+        }
+        guard !parts.isEmpty else { return nil }
+        let full = parts.joined(separator: "\n\n")
+        let maxChars = 12_000
+        return full.count > maxChars ? String(full.prefix(maxChars)) + "\n... (diff truncated, \(full.count) total chars)" : full
+    }
+
+    private static func untrackedFileDetails(cwd: String) -> String? {
+        guard let raw = CodexLedger.runGit(["ls-files", "--others", "--exclude-standard"], cwd: cwd) else { return nil }
+        let files = raw.split(separator: "\n").map(String.init).filter { !$0.isEmpty }
+        guard !files.isEmpty else { return nil }
+
+        var detail = "--- UNTRACKED FILES ---\n" + files.joined(separator: "\n")
+        let previewExtensions = [".swift", ".ts", ".tsx", ".js", ".jsx", ".json", ".md",
+                                 ".sh", ".yml", ".yaml", ".toml", ".css", ".html", ".py",
+                                 ".rs", ".go", ".rb", ".txt", ".xml", ".plist"]
+        let root = URL(fileURLWithPath: cwd).standardizedFileURL.path
+        var remainingBudget = 4_000
+        for file in files {
+            guard remainingBudget > 0,
+                  previewExtensions.contains(where: { file.hasSuffix($0) }),
+                  !file.contains("node_modules") && !file.contains("package-lock") else { continue }
+
+            let url = URL(fileURLWithPath: cwd).appendingPathComponent(file).standardizedFileURL
+            guard url.path.hasPrefix(root + "/"),
+                  let content = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            let preview = String(content.prefix(min(remainingBudget, 1200)))
+            remainingBudget -= preview.count
+            detail += "\n\n--- UNTRACKED CONTENT: \(file) ---\n\(preview)"
+            if content.count > preview.count { detail += "\n... (file truncated)" }
+        }
+        return detail
     }
 
     // MARK: - Binary discovery

@@ -504,6 +504,28 @@ class ClaudeMonitor: ObservableObject {
         PairLog.info("[\(sessionId)] Enqueued \(source.rawValue): \(text.prefix(80))")
     }
 
+    /// Deterministic decision injection for the IPC e2e harness. This exercises the
+    /// same FeedbackHandler dispatch path without waiting for a real reviewer model.
+    func handleTestDecision(session: PairSession, response: String) {
+        let st = state(for: session.id)
+        let screenText = session.readScreen()
+        let isSelection = Self.isSelectionPrompt(screenText) || Self.isAcceptEditsPrompt(screenText)
+        handleFeedback(response: response, screenText: screenText, session: session, st: st,
+                       isSelection: isSelection, durationMs: 0,
+                       screenSnippet: String(screenText.split(separator: "\n").suffix(8).joined(separator: "\n")),
+                       prompt: "IPC test_decision", diffSummary: nil)
+    }
+
+    /// Deterministic backoff exercise for the IPC e2e harness. This uses the
+    /// same updateBackoff implementation as real outcome tracking.
+    func handleTestUnhelpfulOutcome(session: PairSession) -> (streak: Int, backoff: Double) {
+        let st = state(for: session.id)
+        st.consecutiveUnhelpful += 1
+        updateBackoff(st)
+        syncPublished()
+        return (st.consecutiveUnhelpful, st.backoffMultiplier)
+    }
+
     /// Single drain point — called from pollSession when Claude is at an empty prompt.
     /// Pops one item from the injection queue and sends it to the terminal.
     /// Returns true if something was injected (callers should skip further strategy).
@@ -522,11 +544,13 @@ class ClaudeMonitor: ObservableObject {
         // Only mark complete if Claude actually did work (hadInteraction or screen changes).
         // This prevents rapid-fire task completion when the prompt is momentarily empty.
         if TaskQueue.shared.isRunning && !st.hasQueuedInjections {
-            if let stale = TaskQueue.shared.activeTask, st.hadInteraction {
+            let activeTaskMadeProgress = st.hadInteraction || st.changeCount > 0
+            if let stale = TaskQueue.shared.activeTask, activeTaskMadeProgress {
                 // Previous task completed — mark done and pick up the next one
                 PairLog.info("[\(session.id)] Active task at prompt, marking completed: \(stale.title)")
                 TaskQueue.shared.markCompleted(id: stale.id)
                 st.hadInteraction = false
+                st.changeCount = 0
                 if let nextTask = TaskQueue.shared.nextPending() {
                     TaskQueue.shared.markActive(id: nextTask.id)
                     st.enqueue(nextTask.prompt, source: .taskQueue, taskId: nextTask.id)
@@ -679,23 +703,6 @@ class ClaudeMonitor: ObservableObject {
             PairLog.info("[\(session.id)] Poll screen=\(screenText.count)chars hash=\(hash == st.lastScreenHash ? "same" : "changed") changes=\(st.changeCount) stable=\(st.stableCount) backoff=\(String(format: "%.1f", st.backoffMultiplier))x")
         }
 
-        // --- Auto-accept file permission prompts (create/edit/delete) ---
-        // These are blocking and in a pairing workflow we always allow them.
-        // Pick option 2 ("Yes, allow all") when available, otherwise Enter for "Yes".
-        if Self.isAcceptEditsPrompt(screenText) && st.stableCount >= 1 {
-            let hasAllowAll = screenText.lowercased().contains("allow all edits during this session")
-            PairLog.info("[\(session.id)] File permission prompt — auto-accepting\(hasAllowAll ? " (allow all)" : "")")
-            DispatchQueue.main.async {
-                self.addTimeline(st, "SELECT", "Auto-accepting file permission", source: .monitor)
-                if hasAllowAll {
-                    session.selectOption(2)  // "Yes, allow all edits during this session"
-                } else {
-                    session.sendEnter()      // "Yes"
-                }
-            }
-            return
-        }
-
         // --- Single drain point: inject queued text when Claude is ready ---
         // If drain injected something, skip strategy — screen will change on next poll.
         if drainInjectionQueue(session: session, st: st, screenText: screenText) { return }
@@ -846,12 +853,12 @@ class ClaudeMonitor: ObservableObject {
                 let claudeResult = ClaudeReviewIntegration.callClaude(
                     parsedScreen: parsedScreen, screenText: screenText, cwd: session.cwd,
                     conversationSummary: conversationSummary, claudeLooping: claudeLooping,
-                    repeatCount: st.repeatCount)
+                    repeatCount: st.repeatCount, goalContext: session.goalContext())
                 result = CodexResult(response: claudeResult.response,
                                      prompt: claudeResult.prompt,
                                      diffSummary: claudeResult.diffSummary)
             } else {
-                result = self.callCodex(screenText: screenText, cwd: session.cwd, claudeLooping: claudeLooping, repeatCount: st.repeatCount, parsedScreen: parsedScreen, conversationSummary: conversationSummary)
+                result = self.callCodex(screenText: screenText, cwd: session.cwd, claudeLooping: claudeLooping, repeatCount: st.repeatCount, parsedScreen: parsedScreen, conversationSummary: conversationSummary, goalContext: session.goalContext())
             }
             let screenSnippet = String(screenText.split(separator: "\n").suffix(8).joined(separator: "\n"))
             let response = result.response
@@ -904,7 +911,7 @@ class ClaudeMonitor: ObservableObject {
                 return
             }
 
-            let isSelection = parsedScreen.state == .selectionMenu || parsedScreen.state == .permissionPrompt
+            let isSelection = parsedScreen.state == .selectionMenu || parsedScreen.state == .permissionPrompt || parsedScreen.state == .acceptEdits
             PairLog.info("[\(session.id)] Codex (\(durationMs ?? 0)ms): \(response.prefix(150)) [selection=\(isSelection), backoff=\(String(format: "%.1f", st.backoffMultiplier))x]")
             st.lastCodexResponse = response
 
@@ -957,7 +964,7 @@ class ClaudeMonitor: ObservableObject {
                 }
             }
 
-            if response.uppercased().contains("APPROVE") {
+            if case .approve = codexDecision, !isSelection {
                 DispatchQueue.main.async {
                     self.addTimeline(st, "APPROVED", response, source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: result.prompt, codexResponse: response, diffSummary: result.diffSummary)
                 }
@@ -1087,8 +1094,8 @@ class ClaudeMonitor: ObservableObject {
 
     // MARK: - Codex integration (thin wrappers — logic lives in CodexIntegration.swift)
 
-    private func callCodex(screenText: String, cwd: String, claudeLooping: Bool = false, repeatCount: Int = 0, parsedScreen: ParsedScreen? = nil, conversationSummary: String = "") -> CodexResult {
-        CodexIntegration.callCodex(screenText: screenText, cwd: cwd, claudeLooping: claudeLooping, repeatCount: repeatCount, codexTimeoutSec: codexTimeoutSec, parsedScreen: parsedScreen, conversationSummary: conversationSummary)
+    private func callCodex(screenText: String, cwd: String, claudeLooping: Bool = false, repeatCount: Int = 0, parsedScreen: ParsedScreen? = nil, conversationSummary: String = "", goalContext: String = "") -> CodexResult {
+        CodexIntegration.callCodex(screenText: screenText, cwd: cwd, claudeLooping: claudeLooping, repeatCount: repeatCount, codexTimeoutSec: codexTimeoutSec, parsedScreen: parsedScreen, conversationSummary: conversationSummary, goalContext: goalContext)
     }
 
     private static func extractLearnings(from response: String, ledger: CodexLedger) {

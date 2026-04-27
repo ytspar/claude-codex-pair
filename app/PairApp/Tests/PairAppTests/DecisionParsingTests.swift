@@ -80,10 +80,28 @@ final class DecisionParsingTests: XCTestCase {
 
     func testApproveAnywhere() {
         let decision = CodexDecision.parse("looks good, APPROVE")
+        guard case .unknown(let text) = decision else {
+            XCTFail("Expected .unknown, got \(decision)")
+            return
+        }
+        XCTAssertEqual(text, "looks good, APPROVE")
+    }
+
+    func testApproveWithExplanationOnSecondLine() {
+        let decision = CodexDecision.parse("APPROVE\nLooks good.")
         guard case .approve = decision else {
             XCTFail("Expected .approve, got \(decision)")
             return
         }
+    }
+
+    func testRedirectMentioningApproveDoesNotApprove() {
+        let decision = CodexDecision.parse("REDIRECT: do not approve this yet")
+        guard case .redirect(let text) = decision else {
+            XCTFail("Expected .redirect, got \(decision)")
+            return
+        }
+        XCTAssertEqual(text, "do not approve this yet")
     }
 
     func testUnknown() {

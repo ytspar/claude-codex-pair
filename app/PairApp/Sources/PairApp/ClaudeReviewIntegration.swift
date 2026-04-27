@@ -17,7 +17,8 @@ enum ClaudeReviewIntegration {
     /// All instance state that `ClaudeMonitor` formerly accessed is passed in explicitly.
     static func callClaude(parsedScreen: ParsedScreen? = nil, screenText: String, cwd: String,
                            conversationSummary: String = "", claudeLooping: Bool = false,
-                           repeatCount: Int = 0, timeoutSec: Double = 30) -> ReviewResult {
+                           repeatCount: Int = 0, timeoutSec: Double = 30,
+                           goalContext: String = "") -> ReviewResult {
         PairLog.info(">>> callClaude (review) entered (cwd=\(cwd), screen=\(screenText.count) chars)")
         let lastLines = screenText.split(separator: "\n").suffix(20).joined(separator: "\n")
         let screen = parsedScreen ?? ScreenParser.parse(screenText)
@@ -94,11 +95,17 @@ enum ClaudeReviewIntegration {
             conversationBlock = "\nRECENT CONVERSATION:\n\(conversationSummary)\n"
         }
 
+        var goalBlock = ""
+        if !goalContext.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            goalBlock = "\n--- ACTIVE GOAL / ACCEPTANCE CRITERIA ---\n\(goalContext)\n"
+        }
+
         var stateHints = ""
-        if screen.state == .selectionMenu || screen.state == .permissionPrompt {
+        if screen.state == .selectionMenu || screen.state == .permissionPrompt || screen.state == .acceptEdits {
             stateHints += """
             \nThis is a selection/permission prompt. Respond with SELECT: <number>.
-            For permission prompts, prefer the most permissive option (usually 2 for "Yes, allow all").
+            For permission prompts, prefer the most permissive safe option, but reject or redirect if the visible action is wrong or dangerous.
+            For accept-edits prompts, inspect the goal and diff context before selecting; do not blindly approve.
             """
         }
         if screen.state == .askingQuestion {
@@ -110,10 +117,14 @@ enum ClaudeReviewIntegration {
 
         \(stateBlock)
         \(conversationBlock)
-        \(contextBlock)\(diffBlock)\(commitBlock)\(loopWarning)
+        \(goalBlock)\(contextBlock)\(diffBlock)\(commitBlock)\(loopWarning)
         --- BEGIN TERMINAL OUTPUT ---
         \(lastLines)
         --- END TERMINAL OUTPUT ---
+
+        Use ACTIVE GOAL / ACCEPTANCE CRITERIA as the primary source of truth.
+        If the goal is absent or insufficient to verify completion, prefer ESCALATE
+        rather than guessing that the task is done.
 
         Respond with exactly ONE line in this format:
         - APPROVE — Work is correct, let Codex continue

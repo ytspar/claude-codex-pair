@@ -13,9 +13,14 @@ enum CodexDecision {
     /// Parse a raw Codex response string into a structured decision.
     static func parse(_ response: String) -> CodexDecision {
         let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
-        let upper = trimmed.uppercased()
+        guard let firstLine = trimmed.split(separator: "\n", omittingEmptySubsequences: false).first else {
+            return .unknown("")
+        }
+        let first = firstLine.trimmingCharacters(in: .whitespaces)
+        let upper = first.uppercased()
 
-        // Exact prefix matches (case-insensitive)
+        // Only the first line is authoritative. Explanatory text must not turn
+        // REDIRECT/ANSWER responses into accidental approvals.
         if upper == "APPROVE" {
             return .approve
         }
@@ -23,25 +28,21 @@ enum CodexDecision {
             return .wait
         }
         if upper.hasPrefix("ANSWER:") {
-            let value = String(trimmed.dropFirst("ANSWER:".count)).trimmingCharacters(in: .whitespaces)
+            let value = String(first.dropFirst("ANSWER:".count)).trimmingCharacters(in: .whitespaces)
             return .answer(value)
         }
         if upper.hasPrefix("SELECT:") {
-            let value = String(trimmed.dropFirst("SELECT:".count)).trimmingCharacters(in: .whitespaces)
-            return .select(Int(value) ?? 1)
+            let value = String(first.dropFirst("SELECT:".count)).trimmingCharacters(in: .whitespaces)
+            let n = value.split(separator: " ").first.flatMap { Int($0) } ?? 1
+            return .select(n)
         }
         if upper.hasPrefix("REDIRECT:") {
-            let value = String(trimmed.dropFirst("REDIRECT:".count)).trimmingCharacters(in: .whitespaces)
+            let value = String(first.dropFirst("REDIRECT:".count)).trimmingCharacters(in: .whitespaces)
             return .redirect(value)
         }
         if upper.hasPrefix("ESCALATE:") {
-            let value = String(trimmed.dropFirst("ESCALATE:".count)).trimmingCharacters(in: .whitespaces)
+            let value = String(first.dropFirst("ESCALATE:".count)).trimmingCharacters(in: .whitespaces)
             return .escalate(value)
-        }
-
-        // Backward compat: APPROVE anywhere in response
-        if upper.contains("APPROVE") {
-            return .approve
         }
 
         // Bare numbers are NOT auto-converted to SELECT — the reviewer must

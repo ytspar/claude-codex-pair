@@ -27,7 +27,7 @@ enum ScreenParser {
         let (toolName, toolResult) = extractTool(lines)
         let message = extractClaudeMessage(lines)
         let question = state == .askingQuestion ? extractQuestion(lines) : nil
-        let options = (state == .selectionMenu || state == .permissionPrompt) ? extractSelectionOptions(lines) : nil
+        let options = (state == .selectionMenu || state == .permissionPrompt || state == .acceptEdits) ? extractSelectionOptions(lines) : nil
         let permDetail = state == .permissionPrompt ? extractPermissionDetail(lines) : nil
         let files = extractFilesModified(lines)
         let (hasErr, errMsg) = state == .showingError ? extractError(lines) : (false, nil)

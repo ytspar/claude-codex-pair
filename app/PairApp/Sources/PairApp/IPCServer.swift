@@ -284,6 +284,55 @@ class IPCServer {
             ClaudeMonitor.shared.clearQueue(for: surfaceId)
             return IPCResponse(ok: true)
 
+        case "test_decision":
+            // Test harness only: run a supplied structured decision through the
+            // production FeedbackHandler path.
+            guard let surfaceId = request.surface, let response = request.text else {
+                return IPCResponse(ok: false, error: "Missing surface or text")
+            }
+            guard let session = SessionManager.shared.findSession(surfaceId) else {
+                return IPCResponse(ok: false, error: "Session not found")
+            }
+            let decisionSemaphore = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async {
+                ClaudeMonitor.shared.handleTestDecision(session: session, response: response)
+                decisionSemaphore.signal()
+            }
+            if decisionSemaphore.wait(timeout: .now() + 10) == .timedOut {
+                return IPCResponse(ok: false, error: "Timed out waiting for main thread")
+            }
+            return IPCResponse(ok: true)
+
+        case "test_unhelpful":
+            // Test harness only: apply one neutral/regressed outcome through the
+            // production backoff calculation.
+            guard let surfaceId = request.surface else {
+                return IPCResponse(ok: false, error: "Missing surface")
+            }
+            guard let session = SessionManager.shared.findSession(surfaceId) else {
+                return IPCResponse(ok: false, error: "Session not found")
+            }
+            var state = IPCTestBackoffState(streak: 0, backoff: 1.0)
+            let backoffSemaphore = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async {
+                let result = ClaudeMonitor.shared.handleTestUnhelpfulOutcome(session: session)
+                state = IPCTestBackoffState(streak: result.streak, backoff: result.backoff)
+                backoffSemaphore.signal()
+            }
+            if backoffSemaphore.wait(timeout: .now() + 10) == .timedOut {
+                return IPCResponse(ok: false, error: "Timed out waiting for main thread")
+            }
+            guard let data = try? JSONEncoder().encode(state),
+                  let encoded = String(data: data, encoding: .utf8) else {
+                return IPCResponse(ok: false, error: "Failed to encode backoff state")
+            }
+            return IPCResponse(ok: true, result: encoded)
+
+        case "queue_add", "queue_start", "queue_stop", "queue_clear", "queue_state":
+            // Test harness queue controls. Auth is still required above, and the
+            // queue is scoped to the target session's project directory.
+            return handleQueueAction(request)
+
         case "remove_session":
             // Remove a session and its monitor state (used by test harness cleanup)
             guard let surfaceId = request.surface else {
@@ -302,6 +351,78 @@ class IPCServer {
         default:
             return IPCResponse(ok: false, error: "Unknown action: \(request.action)")
         }
+    }
+
+    private func handleQueueAction(_ request: IPCRequest) -> IPCResponse {
+        guard let surfaceId = request.surface else {
+            return IPCResponse(ok: false, error: "Missing surface")
+        }
+
+        var response = IPCResponse(ok: false, error: "No response")
+        let semaphore = DispatchSemaphore(value: 0)
+        DispatchQueue.main.async {
+            guard let session = SessionManager.shared.findSession(surfaceId) else {
+                response = IPCResponse(ok: false, error: "Session not found")
+                semaphore.signal()
+                return
+            }
+
+            SessionManager.shared.activeSessionId = session.id
+            TaskQueue.shared.setProject(session.cwd)
+
+            switch request.action {
+            case "queue_add":
+                guard let prompt = request.text, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    response = IPCResponse(ok: false, error: "Missing text")
+                    semaphore.signal()
+                    return
+                }
+                TaskQueue.shared.addTask(prompt: prompt)
+            case "queue_start":
+                TaskQueue.shared.start()
+            case "queue_stop":
+                TaskQueue.shared.stop()
+            case "queue_clear":
+                TaskQueue.shared.stop()
+                TaskQueue.shared.clearAll()
+                ClaudeMonitor.shared.clearQueue(for: session.id)
+            case "queue_state":
+                break
+            default:
+                response = IPCResponse(ok: false, error: "Unknown queue action: \(request.action)")
+                semaphore.signal()
+                return
+            }
+
+            response = IPCResponse(ok: true, result: Self.encodeQueueState())
+            semaphore.signal()
+        }
+
+        if semaphore.wait(timeout: .now() + 10) == .timedOut {
+            return IPCResponse(ok: false, error: "Timed out waiting for main thread")
+        }
+        return response
+    }
+
+    private static func encodeQueueState() -> String {
+        let state = IPCQueueState(
+            isRunning: TaskQueue.shared.isRunning,
+            pendingCount: TaskQueue.shared.pendingCount,
+            activeTitle: TaskQueue.shared.activeTask?.title,
+            items: TaskQueue.shared.items.map {
+                IPCQueueItemState(
+                    id: $0.id.uuidString,
+                    title: $0.title,
+                    prompt: $0.prompt,
+                    status: $0.status.rawValue
+                )
+            }
+        )
+        guard let data = try? JSONEncoder().encode(state),
+              let encoded = String(data: data, encoding: .utf8) else {
+            return "{}"
+        }
+        return encoded
     }
 
     private func sendResponse(_ fd: Int32, _ response: IPCResponse) {
@@ -354,4 +475,23 @@ struct IPCResponse: Codable {
     let ok: Bool
     var result: String?
     var error: String?
+}
+
+private struct IPCQueueState: Codable {
+    let isRunning: Bool
+    let pendingCount: Int
+    let activeTitle: String?
+    let items: [IPCQueueItemState]
+}
+
+private struct IPCQueueItemState: Codable {
+    let id: String
+    let title: String
+    let prompt: String
+    let status: String
+}
+
+private struct IPCTestBackoffState: Codable {
+    let streak: Int
+    let backoff: Double
 }

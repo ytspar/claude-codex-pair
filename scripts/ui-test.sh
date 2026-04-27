@@ -7,26 +7,42 @@ set -e
 PASS=0
 FAIL=0
 LOG="$HOME/.claude-codex-pair/pairapp.log"
+SOCKET="$HOME/.claude-codex-pair/pair-terminal.sock"
+TOKEN_FILE="$HOME/.claude-codex-pair/auth-token"
+PAIR_APP_PATH="${PAIR_APP_PATH:-/Applications/Pair.app}"
 
 pass() { echo "  ✅ $1"; PASS=$((PASS + 1)); }
 fail() { echo "  ❌ $1"; FAIL=$((FAIL + 1)); }
 
 # Run osascript with a timeout
 run_osa() {
-    timeout 5 osascript -e "$1" 2>/dev/null
+    if command -v timeout >/dev/null 2>&1; then
+        timeout 5 osascript -e "$1" 2>/dev/null
+    else
+        osascript -e "$1" 2>/dev/null
+    fi
 }
 
 echo "=== PairApp UI Test Suite ==="
 echo ""
 
 # Clean state
-pkill -f Pair 2>/dev/null || true
-sleep 1
+if [[ "${PAIR_UI_TEST_KILL:-0}" == "1" ]]; then
+    pkill -f Pair 2>/dev/null || true
+    sleep 1
+fi
 > "$LOG"
+
+ipc() {
+    local payload="$1"
+    local token=""
+    [[ -f "$TOKEN_FILE" ]] && token="$(cat "$TOKEN_FILE")"
+    PAYLOAD="$payload" TOKEN="$token" node -e 'const p = JSON.parse(process.env.PAYLOAD); p.token = process.env.TOKEN || ""; process.stdout.write(JSON.stringify(p));'
+}
 
 # ── Test 1: App launches ──
 echo "Test 1: Launch"
-open /Applications/Pair.app
+open "$PAIR_APP_PATH"
 sleep 5
 
 if pgrep -x "Pair" > /dev/null 2>&1 || pgrep -f "PairApp" > /dev/null 2>&1; then
@@ -57,9 +73,9 @@ grep -q "Poll #" "$LOG" && pass "Polling active" || fail "Not polling"
 
 # ── Test 4: IPC ──
 echo "Test 4: IPC"
-if [ -S "$HOME/.claude-codex-pair/pair-terminal.sock" ]; then
+if [ -S "$SOCKET" ]; then
     pass "Socket exists"
-    RESP=$(echo '{"action":"list_sessions"}' | timeout 3 nc -U "$HOME/.claude-codex-pair/pair-terminal.sock" 2>/dev/null || echo "")
+    RESP=$(ipc '{"action":"list_sessions"}' | nc -U -w 3 "$SOCKET" 2>/dev/null || echo "")
     if echo "$RESP" | grep -q '"ok":true'; then
         pass "IPC responds"
     else
@@ -71,7 +87,7 @@ fi
 
 # ── Test 5: Create session ──
 echo "Test 5: Session"
-echo '{"action":"create_session","surface":"ui-test","text":"/tmp"}' | timeout 3 nc -U "$HOME/.claude-codex-pair/pair-terminal.sock" 2>/dev/null > /dev/null
+ipc '{"action":"create_session","surface":"ui-test","text":"/tmp"}' | nc -U -w 3 "$SOCKET" 2>/dev/null > /dev/null
 sleep 3
 grep -q "makeNSView" "$LOG" && pass "Terminal created" || fail "No terminal"
 grep -q "Creating session" "$LOG" && pass "Session logged" || fail "Session not logged"
@@ -99,7 +115,9 @@ fi
 
 # ── Cleanup ──
 echo ""
-pkill -f Pair 2>/dev/null || true
+if [[ "${PAIR_UI_TEST_KILL:-0}" == "1" ]]; then
+    pkill -f Pair 2>/dev/null || true
+fi
 sleep 1
 
 echo "=== Results: $PASS passed, $FAIL failed ==="
