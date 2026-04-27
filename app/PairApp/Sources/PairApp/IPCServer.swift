@@ -14,10 +14,12 @@ class IPCServer {
     private var acceptSource: DispatchSourceRead?
     private(set) var authToken: String = ""
     private var testIPCEnabled: Bool {
+        if ProcessInfo.processInfo.environment["PAIR_ENABLE_TEST_IPC"] == "1" { return true }
+        if ProcessInfo.processInfo.arguments.first?.contains("/.build/debug/") == true { return true }
         #if DEBUG
         return true
         #else
-        return ProcessInfo.processInfo.environment["PAIR_ENABLE_TEST_IPC"] == "1"
+        return false
         #endif
     }
 
