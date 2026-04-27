@@ -296,6 +296,40 @@ class IPCServer {
                 return IPCResponse(ok: true)
             }
 
+        case "test_feedback":
+            // Test harness only: run a structured decision against a supplied
+            // synthetic screen. Used when real Claude permission state is cached.
+            guard let surfaceId = request.surface,
+                  let text = request.text,
+                  let data = text.data(using: .utf8),
+                  let payload = try? JSONDecoder().decode(IPCTestFeedbackPayload.self, from: data) else {
+                return IPCResponse(ok: false, error: "Missing or invalid test_feedback payload")
+            }
+            return runOnMain {
+                guard let session = SessionManager.shared.findSession(surfaceId) else {
+                    return IPCResponse(ok: false, error: "Session not found")
+                }
+                let parsed = ScreenParser.parse(payload.screen)
+                let entry = ClaudeMonitor.shared.handleTestFeedback(
+                    session: session,
+                    response: payload.response,
+                    screenText: payload.screen,
+                    dryRunSelection: payload.dryRunSelection ?? true
+                )
+                let state = IPCTestFeedbackState(
+                    event: entry?.event,
+                    detail: entry?.detail,
+                    screenState: parsed.state.rawValue,
+                    optionCount: PairSession.selectionOptionCount(in: payload.screen),
+                    currentSelection: PairSession.currentSelectionIndex(in: payload.screen)
+                )
+                guard let data = try? JSONEncoder().encode(state),
+                      let encoded = String(data: data, encoding: .utf8) else {
+                    return IPCResponse(ok: false, error: "Failed to encode test feedback state")
+                }
+                return IPCResponse(ok: true, result: encoded)
+            }
+
         case "test_unhelpful":
             // Test harness only: apply one neutral/regressed outcome through the
             // production backoff calculation.
@@ -436,6 +470,7 @@ class IPCServer {
             "resume_monitor",
             "clear_queue",
             "test_decision",
+            "test_feedback",
             "test_unhelpful",
             "remove_session",
         ].contains(action)
@@ -510,4 +545,18 @@ private struct IPCQueueItemState: Codable {
 private struct IPCTestBackoffState: Codable {
     let streak: Int
     let backoff: Double
+}
+
+private struct IPCTestFeedbackPayload: Codable {
+    let screen: String
+    let response: String
+    let dryRunSelection: Bool?
+}
+
+private struct IPCTestFeedbackState: Codable {
+    let event: String?
+    let detail: String?
+    let screenState: String
+    let optionCount: Int?
+    let currentSelection: Int?
 }

@@ -7,7 +7,7 @@ import Foundation
 
 extension ClaudeMonitor {
 
-    func handleFeedback(response: String, screenText: String, session: PairSession, st: SessionMonitorState, isSelection: Bool, durationMs: Int?, screenSnippet: String, prompt: String, diffSummary: String?) {
+    func handleFeedback(response: String, screenText: String, session: PairSession, st: SessionMonitorState, isSelection: Bool, durationMs: Int?, screenSnippet: String, prompt: String, diffSummary: String?, dryRunSelection: Bool = false) {
         // If monitor is paused (test harness), discard silently
         if st.paused {
             PairLog.info("[\(session.id)] Monitor paused — discarding feedback")
@@ -80,11 +80,14 @@ extension ClaudeMonitor {
             // The reviewer explicitly wants to select a menu option.
             // Use arrow-key navigation since TUI selects don't accept typed numbers.
             PairLog.info("[\(session.id)] SELECT \(option) via arrow keys")
-            if session.selectOption(option, screenText: screenText) {
+            if dryRunSelection, validateSelectOption(option, screenText: screenText) == nil {
+                addTimeline(st, "SELECT", "Dry-run selecting option \(option)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
+                st.hadInteraction = true
+            } else if session.selectOption(option, screenText: screenText) {
                 addTimeline(st, "SELECT", "Selecting option \(option)", source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
                 st.hadInteraction = true
             } else {
-                let reason = "Invalid SELECT option \(option) for visible menu"
+                let reason = validateSelectOption(option, screenText: screenText) ?? "Invalid SELECT option \(option) for visible menu"
                 addTimeline(st, "ESCALATE", reason, source: .codex, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: prompt, codexResponse: response, diffSummary: diffSummary)
                 NotificationStore.shared.addNotification(sessionId: session.id, title: "Reviewer selection failed", body: reason)
             }
@@ -125,6 +128,19 @@ extension ClaudeMonitor {
             st.stableCount = 0
             st.changeCount = 0
         }
+    }
+
+    private func validateSelectOption(_ option: Int, screenText: String) -> String? {
+        guard option >= 1 else {
+            return "Invalid SELECT option \(option) for visible menu"
+        }
+        if let optionCount = PairSession.selectionOptionCount(in: screenText), option > optionCount {
+            return "Invalid SELECT option \(option) for visible menu with \(optionCount) options"
+        }
+        if PairSession.selectionOptionCount(in: screenText) == nil && option > 20 {
+            return "Invalid SELECT option \(option) because visible option count is unknown"
+        }
+        return nil
     }
 
     // MARK: - Response validation

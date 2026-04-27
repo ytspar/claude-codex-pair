@@ -515,6 +515,22 @@ class ClaudeMonitor: ObservableObject {
                        prompt: "IPC test_decision", diffSummary: nil)
     }
 
+    /// Deterministic feedback exercise for synthetic e2e screens. This keeps
+    /// parsing and dispatch on the production path while avoiding terminal I/O
+    /// for selection prompts.
+    func handleTestFeedback(session: PairSession, response: String, screenText: String, dryRunSelection: Bool) -> TimelineEntry? {
+        let st = state(for: session.id)
+        let previousFirstId = st.timeline.first?.id
+        let parsed = ScreenParser.parse(screenText)
+        let isSelection = parsed.state == .selectionMenu || parsed.state == .permissionPrompt || parsed.state == .acceptEdits
+        handleFeedback(response: response, screenText: screenText, session: session, st: st,
+                       isSelection: isSelection, durationMs: 0,
+                       screenSnippet: String(screenText.split(separator: "\n").suffix(8).joined(separator: "\n")),
+                       prompt: "IPC test_feedback", diffSummary: nil,
+                       dryRunSelection: dryRunSelection)
+        return st.timeline.first { $0.id != previousFirstId }
+    }
+
     /// Deterministic backoff exercise for the IPC e2e harness. This uses the
     /// same updateBackoff implementation as real outcome tracking.
     func handleTestUnhelpfulOutcome(session: PairSession) -> (streak: Int, backoff: Double) {
@@ -595,10 +611,15 @@ class ClaudeMonitor: ObservableObject {
 
     func addTimeline(_ st: SessionMonitorState, _ event: String, _ detail: String, source: TimelineSource = .monitor, durationMs: Int? = nil, screenSnippet: String? = nil, codexPrompt: String? = nil, codexResponse: String? = nil, diffSummary: String? = nil) {  // internal for FeedbackHandler extension
         let entry = TimelineEntry(time: Date(), event: event, detail: detail, sessionId: st.sessionId, source: source, durationMs: durationMs, screenSnippet: screenSnippet, codexPrompt: codexPrompt, codexResponse: codexResponse, diffSummary: diffSummary)
-        DispatchQueue.main.async {
+        let update = {
             st.timeline.insert(entry, at: 0)
             if st.timeline.count > 100 { st.timeline = Array(st.timeline.prefix(100)) }
             self.syncPublished()
+        }
+        if Thread.isMainThread {
+            update()
+        } else {
+            DispatchQueue.main.async(execute: update)
         }
     }
 

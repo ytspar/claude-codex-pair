@@ -125,11 +125,35 @@ interface QueueState {
 	items: QueueItemState[];
 }
 
+interface TestFeedbackState {
+	event: string | null;
+	detail: string | null;
+	screenState: string;
+	optionCount: number | null;
+	currentSelection: number | null;
+}
+
 async function queueState(sessionId: string): Promise<QueueState> {
 	const resp = await ipc({ action: "queue_state", surface: sessionId });
 	if (!resp.ok) throw new Error(`queue_state failed: ${resp.error ?? "unknown error"}`);
 	if (!resp.result) throw new Error("queue_state returned no result");
 	return JSON.parse(resp.result) as QueueState;
+}
+
+async function testFeedback(
+	sessionId: string,
+	screen: string,
+	response: string,
+	dryRunSelection = true,
+): Promise<TestFeedbackState> {
+	const resp = await ipc({
+		action: "test_feedback",
+		surface: sessionId,
+		text: JSON.stringify({ screen, response, dryRunSelection }),
+	});
+	if (!resp.ok) throw new Error(`test_feedback failed: ${resp.error ?? "unknown error"}`);
+	if (!resp.result) throw new Error("test_feedback returned no result");
+	return JSON.parse(resp.result) as TestFeedbackState;
 }
 
 async function waitForQueueState(
@@ -735,6 +759,84 @@ async function testRealPermissionHandled() {
 				Date.now() - start,
 			);
 		}
+	});
+}
+
+async function testDeterministicPermissionSelections() {
+	await runIsolated("Deterministic permission SELECT", 90000, async (ctx) => {
+		const start = Date.now();
+		await ctx.waitForPrompt(30000);
+
+		const permissionScreen = [
+			"Claude wants to run Bash(command: ls -la app/PairApp/Sources/PairApp)",
+			"Do you want to proceed?",
+			"",
+			"❯ 1. Yes, and don't ask again",
+			"  2. Yes",
+			"  3. No",
+			"",
+			"Enter to select · ↑/↓ to navigate · Esc to cancel",
+		].join("\n");
+		const acceptEditsScreen = [
+			"Accept edits on app/PairApp/Sources/PairApp/Version.swift?",
+			"",
+			"❯ 1. Yes",
+			"  2. Yes, and don't ask again",
+			"  3. No",
+			"",
+			"Enter to select · ↑/↓ to navigate · Esc to cancel",
+		].join("\n");
+
+		const permission = await testFeedback(ctx.sessionId, permissionScreen, "SELECT: 2");
+		if (
+			permission.event !== "SELECT" ||
+			permission.screenState !== "permissionPrompt" ||
+			permission.optionCount !== 3 ||
+			permission.currentSelection !== 1
+		) {
+			fail(
+				"Deterministic permission SELECT",
+				`Permission SELECT not exercised: ${JSON.stringify(permission)}`,
+				Date.now() - start,
+			);
+			return;
+		}
+
+		const acceptEdits = await testFeedback(ctx.sessionId, acceptEditsScreen, "SELECT: 1");
+		if (acceptEdits.event !== "SELECT" || acceptEdits.screenState !== "acceptEdits" || acceptEdits.optionCount !== 3) {
+			fail(
+				"Deterministic permission SELECT",
+				`Accept-edits SELECT not exercised: ${JSON.stringify(acceptEdits)}`,
+				Date.now() - start,
+			);
+			return;
+		}
+
+		const outOfRange = await testFeedback(ctx.sessionId, permissionScreen, "SELECT: 9");
+		if (outOfRange.event !== "ESCALATE" || !outOfRange.detail?.includes("9")) {
+			fail(
+				"Deterministic permission SELECT",
+				`Out-of-range SELECT did not escalate: ${JSON.stringify(outOfRange)}`,
+				Date.now() - start,
+			);
+			return;
+		}
+
+		const malformed = await testFeedback(ctx.sessionId, permissionScreen, "SELECT: allow");
+		if (malformed.event !== "ESCALATE" || !malformed.detail?.includes("invalid SELECT")) {
+			fail(
+				"Deterministic permission SELECT",
+				`Malformed SELECT did not escalate: ${JSON.stringify(malformed)}`,
+				Date.now() - start,
+			);
+			return;
+		}
+
+		pass(
+			"Deterministic permission SELECT",
+			"Permission, accept-edits, malformed SELECT, and out-of-range SELECT paths exercised",
+			Date.now() - start,
+		);
 	});
 }
 
@@ -1576,6 +1678,7 @@ export async function runTestLoop(): Promise<void> {
 		testNumberedListNotSelection,
 		testConversationalQuestion,
 		testRealPermissionHandled,
+		testDeterministicPermissionSelections,
 		// Structured pipeline
 		testStructuredDecisionFormat,
 		testWaitDecisionDoesNothing,
