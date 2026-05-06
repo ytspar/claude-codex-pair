@@ -8,7 +8,8 @@ import { MonitorApp } from "./ui/MonitorApp.js";
 import { installHook, removeHook, isHookInstalled } from "./monitor/daemon.js";
 import { findActiveSessions, getMostRecentSession, isProcessAlive } from "./monitor/session-watcher.js";
 import { readState, removeState, listActiveStates } from "./monitor/state.js";
-import { callCodex, isCodexAvailable } from "./codex/client.js";
+import { callCodex } from "./codex/client.js";
+import { assertClisAvailable } from "./shared/cli-check.js";
 import { buildReviewPrompt } from "./codex/prompt-builder.js";
 import { gitDiff } from "./shared/git.js";
 import { getConversationContext } from "./monitor/transcript.js";
@@ -44,12 +45,7 @@ program
 	.description("Launch monitor: install hooks and start TUI dashboard")
 	.option("-s, --session <id>", "Target a specific session ID")
 	.action(async (opts: { session?: string }) => {
-		// Check codex availability
-		if (!(await isCodexAvailable())) {
-			console.error(red("Error: codex CLI not found on PATH."));
-			console.error(dim("Install it: npm install -g @openai/codex"));
-			process.exit(1);
-		}
+		await assertClisAvailable("claude", "codex");
 
 		// Install hook
 		const { installed, hookCommand } = installHook();
@@ -137,6 +133,7 @@ program
 	.description("Launch a Claude session in PairApp (Codex can inject input)")
 	.option("--id <id>", "Session ID")
 	.action(async (directory?: string, opts?: { id?: string }) => {
+		await assertClisAvailable("claude", "codex");
 		const cwd = directory ? path.resolve(directory) : process.cwd();
 		const id = opts?.id ?? `pair-${Date.now().toString(36)}`;
 		const appBinary = path.resolve(import.meta.dirname, "..", "app", "PairApp", ".build", "debug", "PairApp");
@@ -297,10 +294,7 @@ program
 	.description("One-shot: Codex reviews current diff")
 	.option("-s, --session <id>", "Session to review")
 	.action(async (opts: { session?: string }) => {
-		if (!(await isCodexAvailable())) {
-			console.error(red("Error: codex CLI not found on PATH."));
-			process.exit(1);
-		}
+		await assertClisAvailable("claude", "codex");
 
 		const config = loadConfig();
 		const cwd = process.cwd();

@@ -3,8 +3,8 @@ import Foundation
 /// Single source of truth for version info.
 /// Updated by scripts/release.sh
 enum AppVersion {
-    static let version = "0.3.23"
-    static let buildDate = "2026-04-27"
+    static let version = "0.3.24"
+    static let buildDate = "2026-05-06"
 
     static var displayString: String {
         let formatter = DateFormatter()

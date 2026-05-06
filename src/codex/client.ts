@@ -1,9 +1,6 @@
-import { spawn, execFile as execFileCb } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
 import type { CodexReviewResult } from "../types.js";
 import { parseCodexResponse } from "./response-parser.js";
-
-const execFile = promisify(execFileCb);
 
 export interface CodexExecOptions {
 	prompt: string;
@@ -146,14 +143,3 @@ function spawnCodexStream(
 	});
 }
 
-/**
- * Check if codex CLI is available on PATH.
- */
-export async function isCodexAvailable(): Promise<boolean> {
-	try {
-		await execFile("codex", ["--version"]);
-		return true;
-	} catch {
-		return false;
-	}
-}
